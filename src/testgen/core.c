@@ -1,0 +1,297 @@
+ /*
+   * cpdd/testgen_core.c - Content-based copy with deduplication
+   * 
+   * Copyright (c) 2025 Lee de Byl <lee@32kb.net>
+   * 
+   * Permission is hereby granted, free of charge, to any person obtaining a copy
+   * of this software and associated documentation files (the "Software"), to deal
+   * in the Software without restriction, including without limitation the rights
+   * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+   * copies of the Software, and to permit persons to whom the Software is
+   * furnished to do so, subject to the following conditions:
+   * 
+   * The above copyright notice and this permission notice shall be included in
+   * all copies or substantial portions of the Software.
+   * 
+   * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+   * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+   * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+   * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+   * THE SOFTWARE.
+   */
+
+#include "testgen.h"
+
+static unsigned int rand_seed = 0;
+
+char *generate_random_content(size_t size) {
+    char *content = malloc(size + 1);
+    if (!content) return NULL;
+    
+    const char charset[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 \n\t.,!?-_";
+    size_t charset_size = strlen(charset);
+    
+    for (size_t i = 0; i < size; i++) {
+        content[i] = charset[rand() % charset_size];
+    }
+    content[size] = '\0';
+    
+    return content;
+}
+
+char *generate_random_filename(const char *prefix) {
+    char *filename = malloc(256);
+    if (!filename) return NULL;
+    
+    snprintf(filename, 256, "%s_%08x_%04x.txt", 
+             prefix, rand(), rand() % 10000);
+    
+    return filename;
+}
+
+int create_directory_tree(const char *root, int num_dirs) {
+    char path[MAX_PATH];
+    
+    if (mkdir(root, 0755) != 0 && errno != EEXIST) {
+        return -1;
+    }
+    
+    for (int i = 0; i < num_dirs; i++) {
+        int depth = (rand() % 3) + 1;
+        char subpath[MAX_PATH];
+        strcpy(subpath, root);
+        
+        for (int d = 0; d < depth; d++) {
+            snprintf(path, sizeof(path), "%s/dir_%d_%d", subpath, i, d);
+            if (mkdir(path, 0755) != 0 && errno != EEXIST) {
+                continue;
+            }
+            strcpy(subpath, path);
+        }
+    }
+    
+    return 0;
+}
+
+static char *choose_random_directory(const char *root) {
+    char find_cmd[MAX_PATH * 2];
+    char *result = malloc(MAX_PATH);
+    FILE *fp;
+    
+    if (!result) return NULL;
+    
+    snprintf(find_cmd, sizeof(find_cmd), "find '%s' -type d 2>/dev/null | head -20", root);
+    fp = popen(find_cmd, "r");
+    if (!fp) {
+        free(result);
+        return strdup(root);
+    }
+    
+    char directories[20][MAX_PATH];
+    int dir_count = 0;
+    
+    while (fgets(directories[dir_count], MAX_PATH, fp) && dir_count < 20) {
+        char *newline = strchr(directories[dir_count], '\n');
+        if (newline) *newline = '\0';
+        dir_count++;
+    }
+    pclose(fp);
+    
+    if (dir_count == 0) {
+        free(result);
+        return strdup(root);
+    }
+    
+    strcpy(result, directories[rand() % dir_count]);
+    return result;
+}
+
+int create_reference_directory(const char *root, int num_files, int num_dirs, 
+                              file_entry_t **file_list, int verbose) {
+    file_entry_t *head = NULL;
+    file_entry_t *current = NULL;
+    
+    if (verbose) {
+        printf("Creating reference directory: %s\n", root);
+        printf("  Files: %d, Directories: %d\n", num_files, num_dirs);
+    }
+    
+    if (create_directory_tree(root, num_dirs) != 0) {
+        fprintf(stderr, "Error: Failed to create directory tree in %s\n", root);
+        return -1;
+    }
+    
+    for (int i = 0; i < num_files; i++) {
+        file_entry_t *entry = malloc(sizeof(file_entry_t));
+        if (!entry) continue;
+        
+        char *dir = choose_random_directory(root);
+        char *filename = generate_random_filename("ref");
+        char full_path[MAX_PATH];
+        
+        snprintf(full_path, sizeof(full_path), "%s/%s", dir, filename);
+        
+        size_t content_size = MIN_CONTENT_SIZE + (rand() % (MAX_CONTENT_SIZE - MIN_CONTENT_SIZE));
+        char *content = generate_random_content(content_size);
+        
+        entry->path = strdup(full_path);
+        entry->content = content;
+        entry->content_size = content_size;
+        entry->next = NULL;
+        
+        if (!head) {
+            head = entry;
+            current = entry;
+        } else {
+            current->next = entry;
+            current = entry;
+        }
+        
+        FILE *f = fopen(full_path, "w");
+        if (f) {
+            fwrite(content, 1, content_size, f);
+            fclose(f);
+            
+            if (verbose && (i + 1) % 10 == 0) {
+                printf("  Created %d/%d reference files\n", i + 1, num_files);
+            }
+        } else {
+            fprintf(stderr, "Warning: Could not create file %s\n", full_path);
+        }
+        
+        free(dir);
+        free(filename);
+    }
+    
+    *file_list = head;
+    return 0;
+}
+
+int create_source_directory(const char *root, int num_files, int num_dirs,
+                           file_entry_t *ref_files, int duplicate_percent, int verbose) {
+    
+    if (verbose) {
+        printf("Creating source directory: %s\n", root);
+        printf("  Files: %d, Directories: %d, Duplicates: %d%%\n", 
+               num_files, num_dirs, duplicate_percent);
+    }
+    
+    if (create_directory_tree(root, num_dirs) != 0) {
+        fprintf(stderr, "Error: Failed to create directory tree in %s\n", root);
+        return -1;
+    }
+    
+    int num_duplicates = (num_files * duplicate_percent) / 100;
+    int duplicates_created = 0;
+    
+    file_entry_t *ref_current = ref_files;
+    int ref_count = 0;
+    while (ref_current) {
+        ref_count++;
+        ref_current = ref_current->next;
+    }
+    
+    for (int i = 0; i < num_files; i++) {
+        char *dir = choose_random_directory(root);
+        char *filename = generate_random_filename("src");
+        char full_path[MAX_PATH];
+        
+        snprintf(full_path, sizeof(full_path), "%s/%s", dir, filename);
+        
+        FILE *f = fopen(full_path, "w");
+        if (!f) {
+            fprintf(stderr, "Warning: Could not create file %s\n", full_path);
+            free(dir);
+            free(filename);
+            continue;
+        }
+        
+        if (duplicates_created < num_duplicates && ref_count > 0) {
+            int ref_index = rand() % ref_count;
+            ref_current = ref_files;
+            for (int j = 0; j < ref_index && ref_current; j++) {
+                ref_current = ref_current->next;
+            }
+            
+            if (ref_current) {
+                fwrite(ref_current->content, 1, ref_current->content_size, f);
+                duplicates_created++;
+                
+                if (verbose) {
+                    printf("  Created duplicate: %s (matches reference content)\n", full_path);
+                }
+            }
+        } else {
+            size_t content_size = MIN_CONTENT_SIZE + (rand() % (MAX_CONTENT_SIZE - MIN_CONTENT_SIZE));
+            char *content = generate_random_content(content_size);
+            
+            fwrite(content, 1, content_size, f);
+            free(content);
+        }
+        
+        fclose(f);
+        
+        if (verbose && (i + 1) % 10 == 0) {
+            printf("  Created %d/%d source files (%d duplicates so far)\n", 
+                   i + 1, num_files, duplicates_created);
+        }
+        
+        free(dir);
+        free(filename);
+    }
+    
+    if (verbose) {
+        printf("Completed: %d duplicates out of %d files (%.1f%%)\n",
+               duplicates_created, num_files, 
+               (float)duplicates_created / num_files * 100);
+    }
+    
+    return 0;
+}
+
+int generate_test_data(const testgen_options_t *opts) {
+    file_entry_t *ref_files = NULL;
+    
+    if (rand_seed == 0) {
+        rand_seed = time(NULL);
+        srand(rand_seed);
+    }
+    
+    if (opts->verbose) {
+        printf("Test data generation started (seed: %u)\n", rand_seed);
+    }
+    
+    if (create_reference_directory(opts->ref_root, opts->num_files, opts->num_dirs, 
+                                  &ref_files, opts->verbose) != 0) {
+        return -1;
+    }
+    
+    if (create_source_directory(opts->src_root, opts->num_files, opts->num_dirs,
+                               ref_files, opts->duplicate_percent, opts->verbose) != 0) {
+        free_file_list(ref_files);
+        return -1;
+    }
+    
+    free_file_list(ref_files);
+    
+    if (opts->verbose) {
+        printf("Test data generation completed successfully\n");
+    }
+    
+    return 0;
+}
+
+void free_file_list(file_entry_t *list) {
+    file_entry_t *current = list;
+    file_entry_t *next;
+    
+    while (current) {
+        next = current->next;
+        free(current->path);
+        free(current->content);
+        free(current);
+        current = next;
+    }
+}

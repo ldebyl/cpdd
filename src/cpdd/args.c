@@ -1,0 +1,128 @@
+ /*
+   * cpdd/args.c - Content-based copy with deduplication
+   * 
+   * Copyright (c) 2025 Lee de Byl <lee@32kb.net>
+   * 
+   * Permission is hereby granted, free of charge, to any person obtaining a copy
+   * of this software and associated documentation files (the "Software"), to deal
+   * in the Software without restriction, including without limitation the rights
+   * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+   * copies of the Software, and to permit persons to whom the Software is
+   * furnished to do so, subject to the following conditions:
+   * 
+   * The above copyright notice and this permission notice shall be included in
+   * all copies or substantial portions of the Software.
+   * 
+   * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+   * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+   * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+   * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+   * THE SOFTWARE.
+   */
+
+#include "cpdd.h"
+#include <getopt.h>
+
+void print_usage(const char *program_name) {
+    printf("Usage: %s [OPTIONS] SOURCE... DESTINATION\n", program_name);
+    printf("\nCopy files from SOURCE(s) to DESTINATION with optional reference directory linking.\n");
+    printf("\nOptions:\n");
+    printf("  -r, --reference DIR   Reference directory for content-based linking (defaults to hard links)\n");
+    printf("  -H, --hard-link      Create hard links to reference files when content matches (default with -r)\n");
+    printf("  -s, --symbolic-link  Create symbolic links to reference files when content matches\n");
+    printf("  -R, --recursive      Copy directories recursively\n");
+    printf("  -v, --verbose        Verbose output\n");
+    printf("  -h, --help           Show this help message\n");
+    printf("\nExamples:\n");
+    printf("  %s file1.txt file2.txt dest/           # Copy multiple files\n", program_name);
+    printf("  %s -R src1/ src2/ dest/                # Copy multiple directories\n", program_name);
+    printf("  %s -r ref *.txt dest/                  # Copy matching files with hard links\n", program_name);
+    printf("  %s -r ref -s -R src1/ src2/ dest/      # Multiple sources with symbolic links\n", program_name);
+    printf("\nFile matching priority:\n");
+    printf("  1. File size comparison\n");
+    printf("  2. MD5 checksum comparison\n");
+    printf("  3. Byte-by-byte content comparison\n");
+}
+
+int parse_args(int argc, char *argv[], options_t *opts) {
+    int opt;
+    int option_index = 0;
+    
+    static struct option long_options[] = {
+        {"reference",     required_argument, 0, 'r'},
+        {"hard-link",     no_argument,       0, 'H'},
+        {"symbolic-link", no_argument,       0, 's'},
+        {"recursive",     no_argument,       0, 'R'},
+        {"verbose",       no_argument,       0, 'v'},
+        {"help",          no_argument,       0, 'h'},
+        {0, 0, 0, 0}
+    };
+    
+    opts->sources = NULL;
+    opts->source_count = 0;
+    opts->dest_dir = NULL;
+    opts->ref_dir = NULL;
+    opts->link_type = LINK_NONE;
+    opts->verbose = 0;
+    opts->recursive = 0;
+    
+    while ((opt = getopt_long(argc, argv, "r:HsRvh", long_options, &option_index)) != -1) {
+        switch (opt) {
+            case 'r':
+                opts->ref_dir = optarg;
+                break;
+            case 'H':
+                if (opts->link_type != LINK_NONE) {
+                    fprintf(stderr, "Error: Cannot specify both hard and symbolic links\n");
+                    return -1;
+                }
+                opts->link_type = LINK_HARD;
+                break;
+            case 's':
+                if (opts->link_type != LINK_NONE) {
+                    fprintf(stderr, "Error: Cannot specify both hard and symbolic links\n");
+                    return -1;
+                }
+                opts->link_type = LINK_SOFT;
+                break;
+            case 'R':
+                opts->recursive = 1;
+                break;
+            case 'v':
+                opts->verbose = 1;
+                break;
+            case 'h':
+                print_usage(argv[0]);
+                return 1;
+            case '?':
+                return -1;
+            default:
+                return -1;
+        }
+    }
+    
+    if (optind + 1 >= argc) {
+        fprintf(stderr, "Error: At least one SOURCE and DESTINATION required\n");
+        print_usage(argv[0]);
+        return -1;
+    }
+    
+    /* Last argument is destination, everything else is sources */
+    opts->source_count = argc - optind - 1;
+    opts->sources = &argv[optind];
+    opts->dest_dir = argv[argc - 1];
+    
+    /* Set hard links as default when reference directory is specified */
+    if (opts->ref_dir && opts->link_type == LINK_NONE) {
+        opts->link_type = LINK_HARD;
+    }
+    
+    if (opts->link_type != LINK_NONE && !opts->ref_dir) {
+        fprintf(stderr, "Error: Link type specified but no reference directory provided\n");
+        return -1;
+    }
+    
+    return 0;
+}

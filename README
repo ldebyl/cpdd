@@ -1,0 +1,186 @@
+CPDD - Content-Based Copy with Deduplication
+============================================
+
+A high-performance cross-platform UNIX utility for intelligent file copying with 
+content-based deduplication. When copying files, cpdd can detect duplicates by 
+comparing against a reference directory and create hard or symbolic links instead 
+of duplicate copies, dramatically reducing disk usage.
+
+DESIGN PHILOSOPHY
+-----------------
+Traditional copy utilities like 'cp' blindly duplicate files, wasting disk space
+when identical content already exists elsewhere. cpdd solves this by:
+
+- Content-aware copying: Detects identical files regardless of name/location
+- Performance optimization: Only calculates expensive checksums when necessary  
+- Space efficiency: Uses filesystem links instead of duplicate storage
+- UNIX philosophy: Does one thing well with clean command-line interface
+- Cross-platform: Works on all POSIX-compliant systems
+
+The tool is designed for scenarios where you're reorganizing large file collections,
+creating backups, or consolidating data where duplicates are likely but scattered
+across different directory structures with different naming conventions.
+
+HOW IT WORKS
+------------
+cpdd uses a sophisticated three-stage matching algorithm:
+
+1. **Size Filtering** (fastest): Files with different sizes cannot be identical
+2. **MD5 Checksums** (fast): Cryptographic hash comparison catches most duplicates  
+3. **Byte-by-byte** (thorough): Final verification ensures 100% accuracy
+
+**Performance Optimizations:**
+- Two-pass reference scanning: Only calculates MD5 for files with duplicate sizes
+- Early size filtering: Skips expensive operations for obviously different files
+- Streaming comparison: No unnecessary memory allocation for large files
+- Filesystem linking: Zero-copy deduplication via hard/soft links
+
+**Reference Directory Scanning:**
+When a reference directory is specified, cpdd first scans it to build an index:
+- Pass 1: Collect all file paths and sizes (fast, metadata only)
+- Pass 2: Calculate MD5 hashes only for files with non-unique sizes
+- Result: Memory-efficient index ready for fast content matching
+
+**Copy Operation:**
+For each source file, cpdd:
+- Checks size against reference index (instant filter)
+- Calculates source MD5 only if reference matches exist
+- Performs byte-level verification before linking
+- Falls back to normal copy if no matches found
+
+BUILDING
+--------
+Requirements:
+- GCC or compatible C compiler  
+- POSIX-compliant system (Linux, macOS, FreeBSD, OpenBSD, NetBSD)
+- Make utility
+
+Build everything:
+    make                    # Builds cpdd and testgen
+
+Build individually:
+    make cpdd               # Main program only
+    make testgen            # Test data generator only
+
+Development:
+    make debug              # Build with debug symbols
+    make test               # Run comprehensive test suite
+    make clean              # Remove build artifacts
+
+Installation:
+    make install            # Install to /usr/local/bin
+    make uninstall          # Remove from system
+
+USAGE
+-----
+cpdd [OPTIONS] SOURCE DESTINATION
+
+Core Options:
+    -r, --reference DIR   Reference directory (enables deduplication, defaults to hard links)
+    -H, --hard-link      Create hard links to reference files (default with -r)
+    -s, --symbolic-link  Create symbolic links to reference files  
+    -R, --recursive      Copy directories recursively
+    -v, --verbose        Show detailed operation progress
+    -h, --help           Display help message
+
+USE CASES & EXAMPLES
+-------------------
+
+**1. Media Library Consolidation**
+You have photos scattered across multiple directories with different names:
+    cpdd -r ~/Photos/masters -R ~/Downloads/photos ~/Photos/all
+Result: Duplicates are hard-linked to existing files, saving gigabytes
+
+**2. Backup Deduplication**  
+Creating space-efficient backups of large datasets:
+    cpdd -r /backup/previous -R /home/data /backup/current
+Result: Only changed files consume additional space
+
+**3. Code Repository Cleanup**
+Consolidating multiple project copies with shared dependencies:
+    cpdd -r ~/projects/shared -R ~/Downloads/project-copy ~/projects/clean
+Result: Shared libraries and assets are linked, not duplicated
+
+**4. Document Archive Organization**
+Merging document collections while preserving originals:
+    cpdd -r ~/archive -s -R ~/Downloads/docs ~/archive/new
+Result: Symbolic links preserve original locations while avoiding duplicates
+
+**5. Large File Processing**
+Working with video files, datasets, or other large content:
+    cpdd -r /storage/originals -v -R /processing/input /processing/output  
+Result: Verbose output shows space savings, large files aren't re-read unnecessarily
+
+PERFORMANCE CHARACTERISTICS
+---------------------------
+**Best Case**: Reference directory with many large, uniquely-sized files
+- Most files skip MD5 calculation entirely
+- Near-instant size-based filtering
+- Minimal disk I/O beyond normal copy operations
+
+**Typical Case**: Mixed file sizes with ~30% duplication rate
+- MD5 calculated for ~50% of reference files (those with size duplicates)
+- Source files calculated on-demand during matching
+- Significant space savings through linking
+
+**Worst Case**: All files have identical sizes but different content
+- All files require MD5 calculation and byte-level comparison  
+- Still faster than naive approaches due to early MD5 filtering
+- Performance similar to traditional copy with verification
+
+TEST DATA GENERATION
+--------------------
+cpdd includes 'testgen' for creating realistic test scenarios:
+
+    testgen [options] REFERENCE_DIR SOURCE_DIR
+    
+    -f, --files COUNT     Number of files to generate (default: 100)
+    -d, --dirs COUNT      Number of directories (default: 10)  
+    -p, --percent PCT     Percentage of duplicates 0-100 (default: 30)
+    -v, --verbose         Show generation progress
+
+Example workflows:
+    # Generate test data with 60% duplication
+    ./testgen -f 200 -p 60 /tmp/ref /tmp/src
+    
+    # Test cpdd performance
+    time ./cpdd -r /tmp/ref -v /tmp/src /tmp/dest
+    
+    # Verify space savings
+    du -sh /tmp/ref /tmp/src /tmp/dest
+
+TESTING
+-------
+Comprehensive test suite covering:
+- Basic file operations and edge cases
+- Recursive directory traversal
+- Hard and symbolic link creation  
+- Content matching algorithm correctness
+- Command-line argument validation
+- Cross-platform compatibility
+
+Run tests:
+    make test               # Full test suite
+    ./examples/demo.sh      # Interactive demonstration
+
+TECHNICAL DETAILS  
+-----------------
+**File Matching**: Three-tier approach balances speed and accuracy
+**Memory Usage**: Minimal - processes files in streaming fashion
+**Disk I/O**: Optimized to avoid unnecessary reads of large files  
+**Error Handling**: Graceful fallback to normal copy on link failures
+**Platform Support**: Pure POSIX C99 with OpenSSL for hashing
+
+**Limitations**:
+- Hard links require same filesystem (soft links work cross-filesystem)
+- MD5 collisions theoretically possible (mitigated by byte-level verification)
+- Reference directory must be readable during entire operation
+- Large reference directories consume memory for file index
+
+LICENSE
+-------
+This software is designed as a practical tool for system administrators, 
+developers, and power users managing large file collections. Use responsibly
+and in accordance with your local laws and organizational policies.
+
+Built with modern C practices for reliability, performance, and portability.
