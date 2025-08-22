@@ -25,6 +25,41 @@
 #include "cpdd.h"
 #include <getopt.h>
 
+int parse_preserve_list(const char *preserve_list, preserve_t *preserve) {
+    char *list_copy, *token, *saveptr;
+    
+    list_copy = strdup(preserve_list);
+    if (!list_copy) {
+        fprintf(stderr, "Error: Memory allocation failed\n");
+        return -1;
+    }
+    
+    token = strtok_r(list_copy, ",", &saveptr);
+    while (token) {
+        if (strcmp(token, "mode") == 0) {
+            preserve->mode = 1;
+        } else if (strcmp(token, "ownership") == 0) {
+            preserve->ownership = 1;
+        } else if (strcmp(token, "timestamps") == 0) {
+            preserve->timestamps = 1;
+        } else if (strcmp(token, "all") == 0) {
+            preserve->all = 1;
+            preserve->mode = 1;
+            preserve->ownership = 1;
+            preserve->timestamps = 1;
+        } else {
+            fprintf(stderr, "Error: Invalid preserve attribute '%s'\n", token);
+            fprintf(stderr, "Valid attributes: mode, ownership, timestamps, all\n");
+            free(list_copy);
+            return -1;
+        }
+        token = strtok_r(NULL, ",", &saveptr);
+    }
+    
+    free(list_copy);
+    return 0;
+}
+
 void print_usage(const char *program_name) {
     printf("Usage: %s [OPTIONS] SOURCE... DESTINATION\n", program_name);
     printf("\nCopy files from SOURCE(s) to DESTINATION with optional reference directory linking.\n");
@@ -35,6 +70,10 @@ void print_usage(const char *program_name) {
     printf("  -R, --recursive      Copy directories recursively\n");
     printf("  -n, --no-clobber     Never overwrite existing files\n");
     printf("  -i, --interactive    Prompt before overwrite\n");
+    printf("  -p                   Same as --preserve=mode,ownership,timestamps\n");
+    printf("  --preserve[=ATTR_LIST] Preserve the specified attributes\n");
+    printf("                       (default: mode,ownership,timestamps)\n");
+    printf("                       Additional attributes: all\n");
     printf("  -v, --verbose        Verbose output\n");
     printf("  -h, --help           Show this help message\n");
     printf("\nExamples:\n");
@@ -59,6 +98,7 @@ int parse_args(int argc, char *argv[], options_t *opts) {
         {"recursive",     no_argument,       0, 'R'},
         {"no-clobber",    no_argument,       0, 'n'},
         {"interactive",   no_argument,       0, 'i'},
+        {"preserve",      optional_argument, 0, 'P'},
         {"verbose",       no_argument,       0, 'v'},
         {"help",          no_argument,       0, 'h'},
         {0, 0, 0, 0}
@@ -73,8 +113,12 @@ int parse_args(int argc, char *argv[], options_t *opts) {
     opts->recursive = 0;
     opts->no_clobber = 0;
     opts->interactive = 0;
+    opts->preserve.mode = 0;
+    opts->preserve.ownership = 0;
+    opts->preserve.timestamps = 0;
+    opts->preserve.all = 0;
     
-    while ((opt = getopt_long(argc, argv, "r:HsRnivh", long_options, &option_index)) != -1) {
+    while ((opt = getopt_long(argc, argv, "r:HsRnipvh", long_options, &option_index)) != -1) {
         switch (opt) {
             case 'r':
                 opts->ref_dir = optarg;
@@ -109,6 +153,22 @@ int parse_args(int argc, char *argv[], options_t *opts) {
                     return -1;
                 }
                 opts->interactive = 1;
+                break;
+            case 'p':
+                opts->preserve.mode = 1;
+                opts->preserve.ownership = 1;
+                opts->preserve.timestamps = 1;
+                break;
+            case 'P':
+                if (optarg) {
+                    if (parse_preserve_list(optarg, &opts->preserve) != 0) {
+                        return -1;
+                    }
+                } else {
+                    opts->preserve.mode = 1;
+                    opts->preserve.ownership = 1;
+                    opts->preserve.timestamps = 1;
+                }
                 break;
             case 'v':
                 opts->verbose = 1;

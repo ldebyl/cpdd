@@ -49,6 +49,37 @@ int should_overwrite(const char *dest_path, const options_t *opts) {
     return 1;
 }
 
+int preserve_file_attributes(const char *src, const char *dest, const preserve_t *preserve) {
+    struct stat src_st;
+    struct utimbuf times;
+    
+    if (stat(src, &src_st) != 0) {
+        return -1;
+    }
+    
+    if (preserve->mode) {
+        if (chmod(dest, src_st.st_mode) != 0) {
+            return -1;
+        }
+    }
+    
+    if (preserve->ownership) {
+        if (chown(dest, src_st.st_uid, src_st.st_gid) != 0) {
+            return -1;
+        }
+    }
+    
+    if (preserve->timestamps) {
+        times.actime = src_st.st_atime;
+        times.modtime = src_st.st_mtime;
+        if (utime(dest, &times) != 0) {
+            return -1;
+        }
+    }
+    
+    return 0;
+}
+
 int create_directory_structure(const char *src_path, const char *dest_path) {
     struct stat st;
     char dest_dir[MAX_PATH];
@@ -152,6 +183,14 @@ int copy_or_link_file(const char *src, const char *dest, const char *ref, const 
         return -1;
     }
     
+    if (opts->preserve.mode || opts->preserve.ownership || opts->preserve.timestamps) {
+        if (preserve_file_attributes(src, dest, &opts->preserve) != 0) {
+            if (opts->verbose) {
+                printf("Warning: Failed to preserve attributes for %s\n", dest);
+            }
+        }
+    }
+    
     return 0;
 }
 
@@ -176,6 +215,12 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
                 dest_path, strerror(errno));
         closedir(src_dir);
         return -1;
+    }
+    
+    if (opts->preserve.mode || opts->preserve.ownership || opts->preserve.timestamps) {
+        if (preserve_file_attributes(src_path, dest_path, &opts->preserve) != 0 && opts->verbose) {
+            printf("Warning: Failed to preserve attributes for directory %s\n", dest_path);
+        }
     }
     
     while ((entry = readdir(src_dir)) != NULL) {

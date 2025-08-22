@@ -10,6 +10,7 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <utime.h>
 
 #define MAX_PATH 4096
 #define MD5_DIGEST_LENGTH 16
@@ -22,6 +23,13 @@ typedef enum {
 } link_type_t;
 
 typedef struct {
+    int mode;
+    int ownership;
+    int timestamps;
+    int all;
+} preserve_t;
+
+typedef struct {
     char **sources;
     int source_count;
     char *dest_dir;
@@ -31,6 +39,7 @@ typedef struct {
     int recursive;
     int no_clobber;
     int interactive;
+    preserve_t preserve;
 } options_t;
 
 typedef struct file_info {
@@ -49,6 +58,8 @@ int calculate_md5(const char *filename, unsigned char *digest);
 int files_identical(const char *file1, const char *file2);
 int copy_or_link_file(const char *src, const char *dest, const char *ref, const options_t *opts);
 int should_overwrite(const char *dest_path, const options_t *opts);
+int preserve_file_attributes(const char *src, const char *dest, const preserve_t *preserve);
+int parse_preserve_list(const char *preserve_list, preserve_t *preserve);
 void free_file_list(file_info_t *list);
 void print_usage(const char *program_name);
 
