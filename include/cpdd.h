@@ -30,6 +30,16 @@ typedef struct {
 } preserve_t;
 
 typedef struct {
+    int files_copied;
+    int files_hard_linked;
+    int files_soft_linked;
+    int files_skipped;
+    off_t bytes_copied;
+    off_t bytes_hard_linked;
+    off_t bytes_soft_linked;
+} stats_t;
+
+typedef struct {
     char **sources;
     int source_count;
     char *dest_dir;
@@ -39,6 +49,8 @@ typedef struct {
     int recursive;
     int no_clobber;
     int interactive;
+    int show_stats;
+    int human_readable;
     preserve_t preserve;
 } options_t;
 
@@ -50,16 +62,18 @@ typedef struct file_info {
 } file_info_t;
 
 int parse_args(int argc, char *argv[], options_t *opts);
-int copy_directory(const options_t *opts);
+int copy_directory(const options_t *opts, stats_t *stats);
 int create_directory_structure(const char *src_path, const char *dest_path);
 file_info_t *scan_reference_directory(const char *ref_dir);
 file_info_t *find_matching_file(file_info_t *ref_files, const char *src_file);
 int calculate_md5(const char *filename, unsigned char *digest);
 int files_identical(const char *file1, const char *file2);
-int copy_or_link_file(const char *src, const char *dest, const char *ref, const options_t *opts);
+int copy_or_link_file(const char *src, const char *dest, const char *ref, const options_t *opts, stats_t *stats);
 int should_overwrite(const char *dest_path, const options_t *opts);
 int preserve_file_attributes(const char *src, const char *dest, const preserve_t *preserve);
 int parse_preserve_list(const char *preserve_list, preserve_t *preserve);
+void format_bytes(off_t bytes, int human_readable, char *buffer, size_t buffer_size);
+void print_statistics(const stats_t *stats, int human_readable);
 void free_file_list(file_info_t *list);
 void print_usage(const char *program_name);
 

@@ -26,6 +26,7 @@
 
 int main(int argc, char *argv[]) {
     options_t opts;
+    stats_t stats = {0};
     int parse_result;
     
     parse_result = parse_args(argc, argv, &opts);
@@ -36,9 +37,13 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     
-    if (copy_directory(&opts) != 0) {
+    if (copy_directory(&opts, &stats) != 0) {
         fprintf(stderr, "Error: Copy operation failed\n");
         return 1;
+    }
+    
+    if (opts.show_stats) {
+        print_statistics(&stats, opts.human_readable);
     }
     
     return 0;

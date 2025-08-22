@@ -38,6 +38,7 @@ void print_usage(const char *program_name) {
     printf("      --size-p50 SIZE   50th percentile file size in bytes (default: 4096)\n");
     printf("      --size-p95 SIZE   95th percentile file size in bytes (default: 65536)\n");
     printf("      --size-max SIZE   Maximum file size in bytes (default: 1048576)\n");
+    printf("      --size-scale FACTOR Scale all file sizes by this factor (default: 1.0)\n");
     printf("  -v, --verbose         Verbose output\n");
     printf("  -h, --help            Show this help message\n");
     printf("\nExamples:\n");
@@ -61,6 +62,7 @@ int parse_args(int argc, char *argv[], options_t *opts) {
         {"size-p50", required_argument, 0, '5'},
         {"size-p95", required_argument, 0, '9'},
         {"size-max", required_argument, 0, 'm'},
+        {"size-scale", required_argument, 0, 's'},
         {"verbose",  no_argument,       0, 'v'},
         {"help",     no_argument,       0, 'h'},
         {0, 0, 0, 0}
@@ -75,8 +77,9 @@ int parse_args(int argc, char *argv[], options_t *opts) {
     opts->size_p50 = 4096;      /* Default: 4KB median */
     opts->size_p95 = 65536;     /* Default: 64KB 95th percentile */
     opts->size_p100 = 1048576;  /* Default: 1MB maximum */
+    opts->size_scale = 1.0;     /* Default: no scaling */
     
-    while ((opt = getopt_long(argc, argv, "f:d:p:5:9:m:vh", long_options, &option_index)) != -1) {
+    while ((opt = getopt_long(argc, argv, "f:d:p:5:9:m:s:vh", long_options, &option_index)) != -1) {
         switch (opt) {
             case 'f':
                 opts->num_files = atoi(optarg);
@@ -117,6 +120,13 @@ int parse_args(int argc, char *argv[], options_t *opts) {
                 opts->size_p100 = (size_t)atol(optarg);
                 if (opts->size_p100 == 0) {
                     fprintf(stderr, "Error: Maximum size must be positive\n");
+                    return -1;
+                }
+                break;
+            case 's':
+                opts->size_scale = atof(optarg);
+                if (opts->size_scale <= 0.0) {
+                    fprintf(stderr, "Error: Size scale factor must be positive\n");
                     return -1;
                 }
                 break;

@@ -87,8 +87,6 @@ clean:
 debug: CFLAGS += -g -DDEBUG
 debug: $(TARGET)
 
-syndir: $(SYNDIR_TARGET)
-
 .PHONY: help
 help:
 	@echo "Available targets:"

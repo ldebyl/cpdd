@@ -24,6 +24,7 @@ typedef struct {
     size_t size_p50;    /* 50th percentile file size (median) */
     size_t size_p95;    /* 95th percentile file size */
     size_t size_p100;   /* 100th percentile file size (maximum) */
+    double size_scale;  /* Scale factor for file sizes (default 1.0) */
 } options_t;
 
 typedef struct file_entry {

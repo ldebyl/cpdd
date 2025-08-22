@@ -24,6 +24,10 @@
 
 #include "cpdd.h"
 
+/* Determins whether a destination file should be overwritten,
+ * by firstly determining if the destination exists, whether the
+ * user has specified --no-clobber, and optionally interactively
+ * asking */
 int should_overwrite(const char *dest_path, const options_t *opts) {
     struct stat st;
     
@@ -49,6 +53,7 @@ int should_overwrite(const char *dest_path, const options_t *opts) {
     return 1;
 }
 
+/* Given a source a destination, propogates attributes between them */
 int preserve_file_attributes(const char *src, const char *dest, const preserve_t *preserve) {
     struct stat src_st;
     struct utimbuf times;
@@ -78,6 +83,55 @@ int preserve_file_attributes(const char *src, const char *dest, const preserve_t
     }
     
     return 0;
+}
+
+/* Formats byte counts with human-readable quantities */
+void format_bytes(off_t bytes, int human_readable, char *buffer, size_t buffer_size) {
+    if (!human_readable) {
+        snprintf(buffer, buffer_size, "%lld", (long long)bytes);
+        return;
+    }
+    
+    const char *units[] = {"B", "K", "M", "G", "T", "P"};
+    int unit = 0;
+    double size = (double)bytes;
+    
+    while (size >= 1024.0 && unit < 5) {
+        size /= 1024.0;
+        unit++;
+    }
+    
+    if (unit == 0) {
+        snprintf(buffer, buffer_size, "%lld%s", (long long)bytes, units[unit]);
+    } else if (size >= 100.0) {
+        snprintf(buffer, buffer_size, "%.0f%s", size, units[unit]);
+    } else if (size >= 10.0) {
+        snprintf(buffer, buffer_size, "%.1f%s", size, units[unit]);
+    } else {
+        snprintf(buffer, buffer_size, "%.2f%s", size, units[unit]);
+    }
+}
+
+/* Prints statistics froma copy operation. if requested */
+void print_statistics(const stats_t *stats, int human_readable) {
+    char copied_bytes[32], linked_bytes[32], soft_linked_bytes[32];
+    
+    format_bytes(stats->bytes_copied, human_readable, copied_bytes, sizeof(copied_bytes));
+    format_bytes(stats->bytes_hard_linked, human_readable, linked_bytes, sizeof(linked_bytes));
+    format_bytes(stats->bytes_soft_linked, human_readable, soft_linked_bytes, sizeof(soft_linked_bytes));
+    
+    printf("\nStatistics:\n");
+    printf("  Files copied:     %d (%s)\n", stats->files_copied, copied_bytes);
+    printf("  Files hard linked: %d (%s)\n", stats->files_hard_linked, linked_bytes);
+    printf("  Files soft linked: %d (%s)\n", stats->files_soft_linked, soft_linked_bytes);
+    printf("  Files skipped:    %d\n", stats->files_skipped);
+    
+    off_t total_bytes = stats->bytes_copied + stats->bytes_hard_linked + stats->bytes_soft_linked;
+    int total_files = stats->files_copied + stats->files_hard_linked + stats->files_soft_linked;
+    char total_bytes_str[32];
+    format_bytes(total_bytes, human_readable, total_bytes_str, sizeof(total_bytes_str));
+    
+    printf("  Total files:      %d (%s)\n", total_files, total_bytes_str);
 }
 
 int create_directory_structure(const char *src_path, const char *dest_path) {
@@ -125,7 +179,7 @@ int create_directory_structure(const char *src_path, const char *dest_path) {
     return 0;
 }
 
-int copy_or_link_file(const char *src, const char *dest, const char *ref, const options_t *opts) {
+int copy_or_link_file(const char *src, const char *dest, const char *ref, const options_t *opts, stats_t *stats) {
     struct stat src_st;
     int src_fd, dest_fd;
     char buffer[BUFFER_SIZE];
@@ -135,21 +189,48 @@ int copy_or_link_file(const char *src, const char *dest, const char *ref, const 
         return -1;
     }
     
+    if (opts->verbose) {
+        printf("Processing: %s (%lld bytes)\n", src, (long long)src_st.st_size);
+    }
+    
     if (!should_overwrite(dest, opts)) {
         if (opts->verbose) {
             printf("skipping '%s' (not overwriting)\n", dest);
         }
+        stats->files_skipped++;
         return 0;
     }
     
     if (ref && opts->link_type != LINK_NONE) {
-        if (opts->link_type == LINK_HARD) {
-            if (link(ref, dest) == 0) {
-                return 0;
+        struct stat ref_st;
+        /* Remove destination file if it exists, since we've already decided to overwrite */
+        unlink(dest);
+        
+        /* Get the size of the reference file - use stat() to follow symlinks */
+        if (stat(ref, &ref_st) != 0) {
+            /* If we can't stat the reference file, fall through to regular copy */
+            if (opts->verbose) {
+                printf("Warning: Could not stat reference file %s\n", ref);
             }
-        } else if (opts->link_type == LINK_SOFT) {
-            if (symlink(ref, dest) == 0) {
-                return 0;
+        } else {
+            if (opts->link_type == LINK_HARD) {
+                if (link(ref, dest) == 0) {
+                    stats->files_hard_linked++;
+                    stats->bytes_hard_linked += src_st.st_size;
+                    if (opts->verbose) {
+                        printf("Hard linked %s (%lld bytes)\n", dest, (long long)ref_st.st_size);
+                    }
+                    return 0;
+                }
+            } else if (opts->link_type == LINK_SOFT) {
+                if (symlink(ref, dest) == 0) {
+                    stats->files_soft_linked++;
+                    stats->bytes_soft_linked += src_st.st_size;
+                    if (opts->verbose) {
+                        printf("Soft linked %s (%lld bytes)\n", dest, (long long)ref_st.st_size);
+                    }
+                    return 0;
+                }
             }
         }
     }
@@ -191,11 +272,14 @@ int copy_or_link_file(const char *src, const char *dest, const char *ref, const 
         }
     }
     
+    stats->files_copied++;
+    stats->bytes_copied += src_st.st_size;
+    
     return 0;
 }
 
 static int copy_directory_recursive(const char *src_path, const char *dest_path, 
-                                   file_info_t *ref_files, const options_t *opts) {
+                                   file_info_t *ref_files, const options_t *opts, stats_t *stats) {
     DIR *src_dir;
     struct dirent *entry;
     struct stat st;
@@ -238,7 +322,7 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
         
         if (S_ISDIR(st.st_mode)) {
             if (opts->recursive) {
-                if (copy_directory_recursive(src_full, dest_full, ref_files, opts) != 0) {
+                if (copy_directory_recursive(src_full, dest_full, ref_files, opts, stats) != 0) {
                     closedir(src_dir);
                     return -1;
                 }
@@ -256,7 +340,7 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
             
             if (copy_or_link_file(src_full, dest_full, 
                                  matching_file ? matching_file->path : NULL, 
-                                 opts) != 0) {
+                                 opts, stats) != 0) {
                 fprintf(stderr, "Warning: Cannot copy %s to %s: %s\n", 
                         src_full, dest_full, strerror(errno));
                 continue;
@@ -278,7 +362,7 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
     return 0;
 }
 
-int copy_directory(const options_t *opts) {
+int copy_directory(const options_t *opts, stats_t *stats) {
     struct stat dest_st;
     file_info_t *ref_files = NULL;
     int overall_result = 0;
@@ -336,7 +420,7 @@ int copy_directory(const options_t *opts) {
         
         /* Copy source to destination */
         if (S_ISDIR(src_st.st_mode)) {
-            if (copy_directory_recursive(src_path, dest_path, ref_files, opts) != 0) {
+            if (copy_directory_recursive(src_path, dest_path, ref_files, opts, stats) != 0) {
                 overall_result = -1;
             }
         } else {
@@ -354,7 +438,7 @@ int copy_directory(const options_t *opts) {
             
             if (copy_or_link_file(src_path, dest_path,
                                  matching_file ? matching_file->path : NULL,
-                                 opts) != 0) {
+                                 opts, stats) != 0) {
                 overall_result = -1;
                 continue;
             }

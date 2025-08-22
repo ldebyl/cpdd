@@ -65,7 +65,7 @@ void print_usage(const char *program_name) {
     printf("\nCopy files from SOURCE(s) to DESTINATION with optional reference directory linking.\n");
     printf("\nOptions:\n");
     printf("  -r, --reference DIR   Reference directory for content-based linking (defaults to hard links)\n");
-    printf("  -H, --hard-link      Create hard links to reference files when content matches (default with -r)\n");
+    printf("  -L, --hard-link      Create hard links to reference files when content matches (default with -r)\n");
     printf("  -s, --symbolic-link  Create symbolic links to reference files when content matches\n");
     printf("  -R, --recursive      Copy directories recursively\n");
     printf("  -n, --no-clobber     Never overwrite existing files\n");
@@ -74,8 +74,10 @@ void print_usage(const char *program_name) {
     printf("  --preserve[=ATTR_LIST] Preserve the specified attributes\n");
     printf("                       (default: mode,ownership,timestamps)\n");
     printf("                       Additional attributes: all\n");
+    printf("  --stats              Show statistics after operation\n");
+    printf("  -h, --human-readable Show file sizes in human readable format\n");
     printf("  -v, --verbose        Verbose output\n");
-    printf("  -h, --help           Show this help message\n");
+    printf("  --help               Show this help message\n");
     printf("\nExamples:\n");
     printf("  %s file1.txt file2.txt dest/           # Copy multiple files\n", program_name);
     printf("  %s -R src1/ src2/ dest/                # Copy multiple directories\n", program_name);
@@ -93,14 +95,16 @@ int parse_args(int argc, char *argv[], options_t *opts) {
     
     static struct option long_options[] = {
         {"reference",     required_argument, 0, 'r'},
-        {"hard-link",     no_argument,       0, 'H'},
+        {"hard-link",     no_argument,       0, 'L'},
         {"symbolic-link", no_argument,       0, 's'},
         {"recursive",     no_argument,       0, 'R'},
         {"no-clobber",    no_argument,       0, 'n'},
         {"interactive",   no_argument,       0, 'i'},
         {"preserve",      optional_argument, 0, 'P'},
+        {"stats",         no_argument,       0, 'S'},
+        {"human-readable", no_argument,      0, 'h'},
         {"verbose",       no_argument,       0, 'v'},
-        {"help",          no_argument,       0, 'h'},
+        {"help",          no_argument,       0, 'H'},
         {0, 0, 0, 0}
     };
     
@@ -113,17 +117,19 @@ int parse_args(int argc, char *argv[], options_t *opts) {
     opts->recursive = 0;
     opts->no_clobber = 0;
     opts->interactive = 0;
+    opts->show_stats = 0;
+    opts->human_readable = 0;
     opts->preserve.mode = 0;
     opts->preserve.ownership = 0;
     opts->preserve.timestamps = 0;
     opts->preserve.all = 0;
     
-    while ((opt = getopt_long(argc, argv, "r:HsRnipvh", long_options, &option_index)) != -1) {
+    while ((opt = getopt_long(argc, argv, "r:LsRnipvhSH", long_options, &option_index)) != -1) {
         switch (opt) {
             case 'r':
                 opts->ref_dir = optarg;
                 break;
-            case 'H':
+            case 'L':
                 if (opts->link_type != LINK_NONE) {
                     fprintf(stderr, "Error: Cannot specify both hard and symbolic links\n");
                     return -1;
@@ -170,10 +176,16 @@ int parse_args(int argc, char *argv[], options_t *opts) {
                     opts->preserve.timestamps = 1;
                 }
                 break;
+            case 'S':
+                opts->show_stats = 1;
+                break;
+            case 'h':
+                opts->human_readable = 1;
+                break;
             case 'v':
                 opts->verbose = 1;
                 break;
-            case 'h':
+            case 'H':
                 print_usage(argv[0]);
                 return 1;
             case '?':
