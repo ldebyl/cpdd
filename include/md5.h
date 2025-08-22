@@ -33,6 +33,8 @@
 
 #define MD5_DIGEST_LENGTH 16
 
+static const unsigned char NULL_MD5[MD5_DIGEST_LENGTH] = {0};
+
 typedef struct {
     uint32_t state[4];
     uint32_t count[2];
@@ -42,5 +44,4 @@ typedef struct {
 void MD5_Init(MD5_CTX *ctx);
 void MD5_Update(MD5_CTX *ctx, const void *data, size_t len);
 void MD5_Final(unsigned char digest[MD5_DIGEST_LENGTH], MD5_CTX *ctx);
-
 #endif

@@ -216,10 +216,10 @@ file_info_t *find_matching_file(file_info_t *ref_files, const char *src_file, co
     }
 
     while (current) {
-        printf("Checking %s against %s\n", src_file, current->path);
+        //printf("Checking %s against %s\n", src_file, current->path);
         if (current->size == st.st_size) {
-            printf("Size match: %s (%lld bytes) vs %s (%lld bytes)\n",
-                   src_file, (long long)st.st_size, current->path, (long long)current->size);
+            //printf("Size match: %s (%lld bytes) vs %s (%lld bytes)\n",
+            //       src_file, (long long)st.st_size, current->path, (long long)current->size);
             // Check the MD5 sum before comparing contents
             // Reference files with a unique size in the collection
             // will have a zero MD5, so we check for that too. This avoids
@@ -227,7 +227,7 @@ file_info_t *find_matching_file(file_info_t *ref_files, const char *src_file, co
             // against files with the same size. (and if we are reading a source
             // file to calculate its MD5, we might as well skip to the bytewise comparison)
             if (memcmp(current->md5, src_md5, MD5_DIGEST_LENGTH) == 0 ||
-                memcmp(current->md5, (unsigned char[MD5_DIGEST_LENGTH]){0}, MD5_DIGEST_LENGTH) == 0) {
+                memcmp(current->md5, NULL_MD5, MD5_DIGEST_LENGTH) == 0) {
                 if (files_identical(current->path, src_file)) {
                     if (opts->verbose) {
                         printf("Match found: %s matches %s\n", src_file, current->path);
@@ -250,11 +250,6 @@ file_info_t *find_matching_file(file_info_t *ref_files, const char *src_file, co
                         printf("%02x", current->md5[i]);
                     printf("\n");
                 }
-            }
-        } else {
-            if (opts->verbose) {
-                printf("Size mismatch: %s (%lld bytes) and %s (%lld bytes)\n",
-                       src_file, (long long)st.st_size, current->path, (long long)current->size);
             }
         }
         current = current->next;
