@@ -1,4 +1,4 @@
- /*
+/*
    * cpdd/matching.c - Content-based copy with deduplication
    * 
    * Copyright (c) 2025 Lee de Byl <lee@32kb.net>
@@ -200,30 +200,70 @@ file_info_t *scan_reference_directory(const char *ref_dir) {
     return head;
 }
 
-file_info_t *find_matching_file(file_info_t *ref_files, const char *src_file) {
+file_info_t *find_matching_file(file_info_t *ref_files, const char *src_file, const options_t *opts) {
     struct stat st;
     unsigned char src_md5[MD5_DIGEST_LENGTH];
     file_info_t *current = ref_files;
-    
+
     if (stat(src_file, &st) != 0) {
+        fprintf(stderr, "Error: Cannot stat source file %s\n", src_file);
         return NULL;
     }
-    
+
     if (calculate_md5(src_file, src_md5) != 0) {
+        fprintf(stderr, "Error: Failed to calculate MD5 for source file %s\n", src_file);
         return NULL;
     }
-    
+
     while (current) {
+        printf("Checking %s against %s\n", src_file, current->path);
         if (current->size == st.st_size) {
-            if (memcmp(current->md5, src_md5, MD5_DIGEST_LENGTH) == 0) {
+            printf("Size match: %s (%lld bytes) vs %s (%lld bytes)\n",
+                   src_file, (long long)st.st_size, current->path, (long long)current->size);
+            // Check the MD5 sum before comparing contents
+            // Reference files with a unique size in the collection
+            // will have a zero MD5, so we check for that too. This avoids
+            // calculating MD5 sums where a file will only ever be compared
+            // against files with the same size. (and if we are reading a source
+            // file to calculate its MD5, we might as well skip to the bytewise comparison)
+            if (memcmp(current->md5, src_md5, MD5_DIGEST_LENGTH) == 0 ||
+                memcmp(current->md5, (unsigned char[MD5_DIGEST_LENGTH]){0}, MD5_DIGEST_LENGTH) == 0) {
                 if (files_identical(current->path, src_file)) {
+                    if (opts->verbose) {
+                        printf("Match found: %s matches %s\n", src_file, current->path);
+                    }
                     return current;
+                } else {
+                    if (opts->verbose) {
+                        printf("MD5 matched but content differs: %s and %s\n", src_file, current->path);
+                    }
                 }
+            } else {
+                if (opts->verbose) {
+                    printf("MD5 mismatch: %s and %s\n", src_file, current->path);
+                    // print the md5 hashes for debugging
+                    printf("MD5 of %s: ", src_file);
+                    for (int i = 0; i < MD5_DIGEST_LENGTH; i++)
+                        printf("%02x", src_md5[i]);
+                    printf("\nMD5 of %s: ", current->path);
+                    for (int i = 0; i < MD5_DIGEST_LENGTH; i++)
+                        printf("%02x", current->md5[i]);
+                    printf("\n");
+                }
+            }
+        } else {
+            if (opts->verbose) {
+                printf("Size mismatch: %s (%lld bytes) and %s (%lld bytes)\n",
+                       src_file, (long long)st.st_size, current->path, (long long)current->size);
             }
         }
         current = current->next;
     }
-    
+
+    if (opts->verbose) {
+        printf("No match found for %s\n", src_file);
+    }
+
     return NULL;
 }
 

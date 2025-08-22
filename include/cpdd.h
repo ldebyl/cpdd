@@ -65,7 +65,7 @@ int parse_args(int argc, char *argv[], options_t *opts);
 int copy_directory(const options_t *opts, stats_t *stats);
 int create_directory_structure(const char *src_path, const char *dest_path);
 file_info_t *scan_reference_directory(const char *ref_dir);
-file_info_t *find_matching_file(file_info_t *ref_files, const char *src_file);
+file_info_t *find_matching_file(file_info_t *ref_files, const char *src_file, const options_t *opts);
 int calculate_md5(const char *filename, unsigned char *digest);
 int files_identical(const char *file1, const char *file2);
 int copy_or_link_file(const char *src, const char *dest, const char *ref, const options_t *opts, stats_t *stats);

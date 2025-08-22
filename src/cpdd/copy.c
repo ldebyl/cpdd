@@ -1,4 +1,4 @@
- /*
+/*
    * cpdd/copy.c - Content-based copy with deduplication
    * 
    * Copyright (c) 2025 Lee de Byl <lee@32kb.net>
@@ -213,6 +213,10 @@ int copy_or_link_file(const char *src, const char *dest, const char *ref, const 
                 printf("Warning: Could not stat reference file %s\n", ref);
             }
         } else {
+            if (opts->verbose) {
+                printf("Comparing %s and %s for duplication...\n", src, ref);
+            }
+
             if (opts->link_type == LINK_HARD) {
                 if (link(ref, dest) == 0) {
                     stats->files_hard_linked++;
@@ -221,6 +225,10 @@ int copy_or_link_file(const char *src, const char *dest, const char *ref, const 
                         printf("Hard linked %s (%lld bytes)\n", dest, (long long)ref_st.st_size);
                     }
                     return 0;
+                } else {
+                    if (opts->verbose) {
+                        printf("Failed to create hard link for %s -> %s: %s\n", ref, dest, strerror(errno));
+                    }
                 }
             } else if (opts->link_type == LINK_SOFT) {
                 if (symlink(ref, dest) == 0) {
@@ -230,6 +238,10 @@ int copy_or_link_file(const char *src, const char *dest, const char *ref, const 
                         printf("Soft linked %s (%lld bytes)\n", dest, (long long)ref_st.st_size);
                     }
                     return 0;
+                } else {
+                    if (opts->verbose) {
+                        printf("Failed to create soft link for %s -> %s: %s\n", ref, dest, strerror(errno));
+                    }
                 }
             }
         }
@@ -330,7 +342,7 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
         } else if (S_ISREG(st.st_mode)) {
             matching_file = NULL;
             if (ref_files) {
-                matching_file = find_matching_file(ref_files, src_full);
+                matching_file = find_matching_file(ref_files, src_full, opts);
             }
             
             if (create_directory_structure(src_full, dest_full) != 0) {
@@ -389,8 +401,22 @@ int copy_directory(const options_t *opts, stats_t *stats) {
             printf("Scanning reference directory %s...\n", opts->ref_dir);
         }
         ref_files = scan_reference_directory(opts->ref_dir);
-        if (!ref_files && opts->verbose) {
-            printf("Warning: No files found in reference directory\n");
+        if (!ref_files) {
+            if (opts->verbose) {
+                printf("Warning: No files found in reference directory\n");
+            }
+        } else {
+            // Count the number of reference files
+            int ref_file_count = 0;
+            file_info_t *current = ref_files;
+            while (current) {
+                ref_file_count++;
+                current = current->next;
+            }
+
+            if (opts->verbose) {
+                printf("Found %d reference files in %s\n", ref_file_count, opts->ref_dir);
+            }
         }
     }
     
@@ -427,7 +453,10 @@ int copy_directory(const options_t *opts, stats_t *stats) {
             file_info_t *matching_file = NULL;
             
             if (ref_files) {
-                matching_file = find_matching_file(ref_files, src_path);
+                matching_file = find_matching_file(ref_files, src_path, opts);
+                if (opts->verbose && matching_file) {
+                    printf("Found matching reference file for %s: %s\n", src_path, matching_file->path);
+                }
             }
             
             if (create_directory_structure(src_path, dest_path) != 0) {

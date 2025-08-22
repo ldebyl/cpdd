@@ -252,12 +252,23 @@ int create_reference_directory(const char *root, int num_files, int num_dirs,
     return 0;
 }
 
-/* Create the synthetic source directory, randomly duplicating a proportion
- * of files from the reference directory. The number of duplicates is
- * determined by the `duplicate_percent` option.
- *
- * Returns 0 on success, -1 on failure.
-*/
+// Helper function to select a random reference file
+static file_entry_t *select_random_reference(file_entry_t *ref_files, int ref_count)
+{
+    if (!ref_files || ref_count <= 0)
+        return NULL;
+
+    int ref_index = rand() % ref_count;
+    file_entry_t *current = ref_files;
+
+    for (int i = 0; i < ref_index && current; i++)
+    {
+        current = current->next;
+    }
+
+    return current;
+}
+
 int create_source_directory(const char *root, int num_files, int num_dirs,
                             file_entry_t *ref_files, const options_t *opts)
 {
@@ -305,27 +316,35 @@ int create_source_directory(const char *root, int num_files, int num_dirs,
 
         if (duplicates_created < num_duplicates && ref_count > 0)
         {
-            int ref_index = rand() % ref_count;
-            ref_current = ref_files;
-            for (int j = 0; j < ref_index && ref_current; j++)
-            {
-                ref_current = ref_current->next;
-            }
+            // Use the helper function to select a random reference file
+            file_entry_t *selected_ref = select_random_reference(ref_files, ref_count);
 
-            if (ref_current)
+            if (selected_ref)
             {
-                fwrite(ref_current->content, 1, ref_current->content_size, f);
+                // Debugging output to verify reference file selection
+                if (opts->verbose)
+                {
+                    printf("  Duplicating file: %s -> %s\n", selected_ref->path, full_path);
+                }
+
+                // Write the content of the reference file to the new file
+                fwrite(selected_ref->content, 1, selected_ref->content_size, f);
                 duplicates_created++;
 
                 if (opts->verbose)
                 {
-                    printf("  Created duplicate: %s (%zu bytes, ref_index=%d/%d)\n",
-                           full_path, ref_current->content_size, ref_index, ref_count);
+                    printf("  Created duplicate: %s (%zu bytes)\n",
+                           full_path, selected_ref->content_size);
                 }
+            }
+            else
+            {
+                fprintf(stderr, "Error: Failed to select a valid reference file for duplication\n");
             }
         }
         else
         {
+            // Create a completely new file with random content
             size_t content_size = generate_file_size(
                 (size_t)(opts->size_p50 * opts->size_scale),
                 (size_t)(opts->size_p95 * opts->size_scale),
