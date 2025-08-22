@@ -29,6 +29,8 @@ typedef struct {
     link_type_t link_type;
     int verbose;
     int recursive;
+    int no_clobber;
+    int interactive;
 } options_t;
 
 typedef struct file_info {
@@ -45,7 +47,8 @@ file_info_t *scan_reference_directory(const char *ref_dir);
 file_info_t *find_matching_file(file_info_t *ref_files, const char *src_file);
 int calculate_md5(const char *filename, unsigned char *digest);
 int files_identical(const char *file1, const char *file2);
-int copy_or_link_file(const char *src, const char *dest, const char *ref, link_type_t link_type);
+int copy_or_link_file(const char *src, const char *dest, const char *ref, const options_t *opts);
+int should_overwrite(const char *dest_path, const options_t *opts);
 void free_file_list(file_info_t *list);
 void print_usage(const char *program_name);
 

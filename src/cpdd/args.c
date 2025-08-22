@@ -33,6 +33,8 @@ void print_usage(const char *program_name) {
     printf("  -H, --hard-link      Create hard links to reference files when content matches (default with -r)\n");
     printf("  -s, --symbolic-link  Create symbolic links to reference files when content matches\n");
     printf("  -R, --recursive      Copy directories recursively\n");
+    printf("  -n, --no-clobber     Never overwrite existing files\n");
+    printf("  -i, --interactive    Prompt before overwrite\n");
     printf("  -v, --verbose        Verbose output\n");
     printf("  -h, --help           Show this help message\n");
     printf("\nExamples:\n");
@@ -55,6 +57,8 @@ int parse_args(int argc, char *argv[], options_t *opts) {
         {"hard-link",     no_argument,       0, 'H'},
         {"symbolic-link", no_argument,       0, 's'},
         {"recursive",     no_argument,       0, 'R'},
+        {"no-clobber",    no_argument,       0, 'n'},
+        {"interactive",   no_argument,       0, 'i'},
         {"verbose",       no_argument,       0, 'v'},
         {"help",          no_argument,       0, 'h'},
         {0, 0, 0, 0}
@@ -67,8 +71,10 @@ int parse_args(int argc, char *argv[], options_t *opts) {
     opts->link_type = LINK_NONE;
     opts->verbose = 0;
     opts->recursive = 0;
+    opts->no_clobber = 0;
+    opts->interactive = 0;
     
-    while ((opt = getopt_long(argc, argv, "r:HsRvh", long_options, &option_index)) != -1) {
+    while ((opt = getopt_long(argc, argv, "r:HsRnivh", long_options, &option_index)) != -1) {
         switch (opt) {
             case 'r':
                 opts->ref_dir = optarg;
@@ -89,6 +95,20 @@ int parse_args(int argc, char *argv[], options_t *opts) {
                 break;
             case 'R':
                 opts->recursive = 1;
+                break;
+            case 'n':
+                if (opts->interactive) {
+                    fprintf(stderr, "Error: Cannot specify both --no-clobber and --interactive\n");
+                    return -1;
+                }
+                opts->no_clobber = 1;
+                break;
+            case 'i':
+                if (opts->no_clobber) {
+                    fprintf(stderr, "Error: Cannot specify both --no-clobber and --interactive\n");
+                    return -1;
+                }
+                opts->interactive = 1;
                 break;
             case 'v':
                 opts->verbose = 1;

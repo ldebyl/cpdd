@@ -24,6 +24,31 @@
 
 #include "cpdd.h"
 
+int should_overwrite(const char *dest_path, const options_t *opts) {
+    struct stat st;
+    
+    if (stat(dest_path, &st) != 0) {
+        return 1;
+    }
+    
+    if (opts->no_clobber) {
+        return 0;
+    }
+    
+    if (opts->interactive) {
+        char response;
+        printf("overwrite '%s'? ", dest_path);
+        fflush(stdout);
+        
+        if (scanf(" %c", &response) == 1) {
+            return (response == 'y' || response == 'Y');
+        }
+        return 0;
+    }
+    
+    return 1;
+}
+
 int create_directory_structure(const char *src_path, const char *dest_path) {
     struct stat st;
     char dest_dir[MAX_PATH];
@@ -69,7 +94,7 @@ int create_directory_structure(const char *src_path, const char *dest_path) {
     return 0;
 }
 
-int copy_or_link_file(const char *src, const char *dest, const char *ref, link_type_t link_type) {
+int copy_or_link_file(const char *src, const char *dest, const char *ref, const options_t *opts) {
     struct stat src_st;
     int src_fd, dest_fd;
     char buffer[BUFFER_SIZE];
@@ -79,12 +104,19 @@ int copy_or_link_file(const char *src, const char *dest, const char *ref, link_t
         return -1;
     }
     
-    if (ref && link_type != LINK_NONE) {
-        if (link_type == LINK_HARD) {
+    if (!should_overwrite(dest, opts)) {
+        if (opts->verbose) {
+            printf("skipping '%s' (not overwriting)\n", dest);
+        }
+        return 0;
+    }
+    
+    if (ref && opts->link_type != LINK_NONE) {
+        if (opts->link_type == LINK_HARD) {
             if (link(ref, dest) == 0) {
                 return 0;
             }
-        } else if (link_type == LINK_SOFT) {
+        } else if (opts->link_type == LINK_SOFT) {
             if (symlink(ref, dest) == 0) {
                 return 0;
             }
@@ -179,7 +211,7 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
             
             if (copy_or_link_file(src_full, dest_full, 
                                  matching_file ? matching_file->path : NULL, 
-                                 opts->link_type) != 0) {
+                                 opts) != 0) {
                 fprintf(stderr, "Warning: Cannot copy %s to %s: %s\n", 
                         src_full, dest_full, strerror(errno));
                 continue;
@@ -277,7 +309,7 @@ int copy_directory(const options_t *opts) {
             
             if (copy_or_link_file(src_path, dest_path,
                                  matching_file ? matching_file->path : NULL,
-                                 opts->link_type) != 0) {
+                                 opts) != 0) {
                 overall_result = -1;
                 continue;
             }
