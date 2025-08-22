@@ -22,10 +22,10 @@
    * THE SOFTWARE.
    */
 
-#include "testgen.h"
+#include "syndir.h"
 #include <getopt.h>
 
-void print_testgen_usage(const char *program_name) {
+void print_usage(const char *program_name) {
     printf("Usage: %s [OPTIONS] REF_ROOT SRC_ROOT\n", program_name);
     printf("\nGenerate test directories with configurable file duplication.\n");
     printf("\nArguments:\n");
@@ -35,6 +35,9 @@ void print_testgen_usage(const char *program_name) {
     printf("  -f, --files COUNT     Number of files to generate (default: 100)\n");
     printf("  -d, --dirs COUNT      Number of directories to create (default: 10)\n");
     printf("  -p, --percent PCT     Percentage of source files that duplicate reference (0-100, default: 30)\n");
+    printf("      --size-p50 SIZE   50th percentile file size in bytes (default: 4096)\n");
+    printf("      --size-p95 SIZE   95th percentile file size in bytes (default: 65536)\n");
+    printf("      --size-max SIZE   Maximum file size in bytes (default: 1048576)\n");
     printf("  -v, --verbose         Verbose output\n");
     printf("  -h, --help            Show this help message\n");
     printf("\nExamples:\n");
@@ -47,7 +50,7 @@ void print_testgen_usage(const char *program_name) {
     printf("  to reference files (but different names/locations).\n");
 }
 
-int parse_testgen_args(int argc, char *argv[], testgen_options_t *opts) {
+int parse_args(int argc, char *argv[], options_t *opts) {
     int opt;
     int option_index = 0;
     
@@ -55,6 +58,9 @@ int parse_testgen_args(int argc, char *argv[], testgen_options_t *opts) {
         {"files",    required_argument, 0, 'f'},
         {"dirs",     required_argument, 0, 'd'},
         {"percent",  required_argument, 0, 'p'},
+        {"size-p50", required_argument, 0, '5'},
+        {"size-p95", required_argument, 0, '9'},
+        {"size-max", required_argument, 0, 'm'},
         {"verbose",  no_argument,       0, 'v'},
         {"help",     no_argument,       0, 'h'},
         {0, 0, 0, 0}
@@ -66,8 +72,11 @@ int parse_testgen_args(int argc, char *argv[], testgen_options_t *opts) {
     opts->num_dirs = 10;
     opts->duplicate_percent = 30;
     opts->verbose = 0;
+    opts->size_p50 = 4096;      /* Default: 4KB median */
+    opts->size_p95 = 65536;     /* Default: 64KB 95th percentile */
+    opts->size_p100 = 1048576;  /* Default: 1MB maximum */
     
-    while ((opt = getopt_long(argc, argv, "f:d:p:vh", long_options, &option_index)) != -1) {
+    while ((opt = getopt_long(argc, argv, "f:d:p:5:9:m:vh", long_options, &option_index)) != -1) {
         switch (opt) {
             case 'f':
                 opts->num_files = atoi(optarg);
@@ -90,11 +99,32 @@ int parse_testgen_args(int argc, char *argv[], testgen_options_t *opts) {
                     return -1;
                 }
                 break;
+            case '5':
+                opts->size_p50 = (size_t)atol(optarg);
+                if (opts->size_p50 == 0) {
+                    fprintf(stderr, "Error: 50th percentile size must be positive\n");
+                    return -1;
+                }
+                break;
+            case '9':
+                opts->size_p95 = (size_t)atol(optarg);
+                if (opts->size_p95 == 0) {
+                    fprintf(stderr, "Error: 95th percentile size must be positive\n");
+                    return -1;
+                }
+                break;
+            case 'm':
+                opts->size_p100 = (size_t)atol(optarg);
+                if (opts->size_p100 == 0) {
+                    fprintf(stderr, "Error: Maximum size must be positive\n");
+                    return -1;
+                }
+                break;
             case 'v':
                 opts->verbose = 1;
                 break;
             case 'h':
-                print_testgen_usage(argv[0]);
+                print_usage(argv[0]);
                 return 1;
             case '?':
                 return -1;
@@ -105,7 +135,13 @@ int parse_testgen_args(int argc, char *argv[], testgen_options_t *opts) {
     
     if (optind + 2 != argc) {
         fprintf(stderr, "Error: REF_ROOT and SRC_ROOT arguments required\n");
-        print_testgen_usage(argv[0]);
+        print_usage(argv[0]);
+        return -1;
+    }
+    
+    /* Validate size percentiles are in ascending order */
+    if (opts->size_p50 > opts->size_p95 || opts->size_p95 > opts->size_p100) {
+        fprintf(stderr, "Error: Size percentiles must be in ascending order (p50 <= p95 <= p100)\n");
         return -1;
     }
     

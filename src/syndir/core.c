@@ -22,9 +22,43 @@
    * THE SOFTWARE.
    */
 
-#include "testgen.h"
+#include "syndir.h"
+#include <math.h>
 
 static unsigned int rand_seed = 0;
+
+size_t generate_file_size(size_t p50, size_t p95, size_t p100) {
+    /* Box-Muller transform to generate normal distribution */
+    static int has_spare = 0;
+    static double spare;
+    
+    double normal;
+    if (has_spare) {
+        has_spare = 0;
+        normal = spare;
+    } else {
+        has_spare = 1;
+        double u = ((double)rand() / RAND_MAX) * 0.99 + 0.005; /* Avoid exactly 0 or 1 */
+        double v = ((double)rand() / RAND_MAX) * 0.99 + 0.005;
+        double mag = sqrt(-2.0 * log(u));
+        spare = mag * cos(2.0 * M_PI * v);
+        normal = mag * sin(2.0 * M_PI * v);
+    }
+    
+    /* Convert percentiles to normal distribution parameters */
+    /* For normal distribution: p95 ≈ μ + 1.645σ, p50 = μ */
+    double mu = (double)p50;
+    double sigma = (double)(p95 - p50) / 1.645;
+    
+    /* Apply transformation: size = μ + σ * normal */
+    double size_d = mu + sigma * normal;
+    
+    /* Clamp to reasonable bounds with better minimum */
+    if (size_d < (double)p50 * 0.1) size_d = (double)p50 * 0.1; /* At least 10% of median */
+    if (size_d > (double)p100) size_d = (double)p100;
+    
+    return (size_t)size_d;
+}
 
 char *generate_random_content(size_t size) {
     char *content = malloc(size + 1);
@@ -109,11 +143,11 @@ static char *choose_random_directory(const char *root) {
 }
 
 int create_reference_directory(const char *root, int num_files, int num_dirs, 
-                              file_entry_t **file_list, int verbose) {
+                              file_entry_t **file_list, const options_t *opts) {
     file_entry_t *head = NULL;
     file_entry_t *current = NULL;
     
-    if (verbose) {
+    if (opts->verbose) {
         printf("Creating reference directory: %s\n", root);
         printf("  Files: %d, Directories: %d\n", num_files, num_dirs);
     }
@@ -133,7 +167,7 @@ int create_reference_directory(const char *root, int num_files, int num_dirs,
         
         snprintf(full_path, sizeof(full_path), "%s/%s", dir, filename);
         
-        size_t content_size = MIN_CONTENT_SIZE + (rand() % (MAX_CONTENT_SIZE - MIN_CONTENT_SIZE));
+        size_t content_size = generate_file_size(opts->size_p50, opts->size_p95, opts->size_p100);
         char *content = generate_random_content(content_size);
         
         entry->path = strdup(full_path);
@@ -154,7 +188,7 @@ int create_reference_directory(const char *root, int num_files, int num_dirs,
             fwrite(content, 1, content_size, f);
             fclose(f);
             
-            if (verbose && (i + 1) % 10 == 0) {
+            if (opts->verbose && (i + 1) % 10 == 0) {
                 printf("  Created %d/%d reference files\n", i + 1, num_files);
             }
         } else {
@@ -170,12 +204,12 @@ int create_reference_directory(const char *root, int num_files, int num_dirs,
 }
 
 int create_source_directory(const char *root, int num_files, int num_dirs,
-                           file_entry_t *ref_files, int duplicate_percent, int verbose) {
+                           file_entry_t *ref_files, const options_t *opts) {
     
-    if (verbose) {
+    if (opts->verbose) {
         printf("Creating source directory: %s\n", root);
         printf("  Files: %d, Directories: %d, Duplicates: %d%%\n", 
-               num_files, num_dirs, duplicate_percent);
+               num_files, num_dirs, opts->duplicate_percent);
     }
     
     if (create_directory_tree(root, num_dirs) != 0) {
@@ -183,7 +217,7 @@ int create_source_directory(const char *root, int num_files, int num_dirs,
         return -1;
     }
     
-    int num_duplicates = (num_files * duplicate_percent) / 100;
+    int num_duplicates = (num_files * opts->duplicate_percent) / 100;
     int duplicates_created = 0;
     
     file_entry_t *ref_current = ref_files;
@@ -219,12 +253,12 @@ int create_source_directory(const char *root, int num_files, int num_dirs,
                 fwrite(ref_current->content, 1, ref_current->content_size, f);
                 duplicates_created++;
                 
-                if (verbose) {
+                if (opts->verbose) {
                     printf("  Created duplicate: %s (matches reference content)\n", full_path);
                 }
             }
         } else {
-            size_t content_size = MIN_CONTENT_SIZE + (rand() % (MAX_CONTENT_SIZE - MIN_CONTENT_SIZE));
+            size_t content_size = generate_file_size(opts->size_p50, opts->size_p95, opts->size_p100);
             char *content = generate_random_content(content_size);
             
             fwrite(content, 1, content_size, f);
@@ -233,7 +267,7 @@ int create_source_directory(const char *root, int num_files, int num_dirs,
         
         fclose(f);
         
-        if (verbose && (i + 1) % 10 == 0) {
+        if (opts->verbose && (i + 1) % 10 == 0) {
             printf("  Created %d/%d source files (%d duplicates so far)\n", 
                    i + 1, num_files, duplicates_created);
         }
@@ -242,7 +276,7 @@ int create_source_directory(const char *root, int num_files, int num_dirs,
         free(filename);
     }
     
-    if (verbose) {
+    if (opts->verbose) {
         printf("Completed: %d duplicates out of %d files (%.1f%%)\n",
                duplicates_created, num_files, 
                (float)duplicates_created / num_files * 100);
@@ -251,7 +285,7 @@ int create_source_directory(const char *root, int num_files, int num_dirs,
     return 0;
 }
 
-int generate_test_data(const testgen_options_t *opts) {
+int generate_test_data(const options_t *opts) {
     file_entry_t *ref_files = NULL;
     
     if (rand_seed == 0) {
@@ -264,12 +298,12 @@ int generate_test_data(const testgen_options_t *opts) {
     }
     
     if (create_reference_directory(opts->ref_root, opts->num_files, opts->num_dirs, 
-                                  &ref_files, opts->verbose) != 0) {
+                                  &ref_files, opts) != 0) {
         return -1;
     }
     
     if (create_source_directory(opts->src_root, opts->num_files, opts->num_dirs,
-                               ref_files, opts->duplicate_percent, opts->verbose) != 0) {
+                               ref_files, opts) != 0) {
         free_file_list(ref_files);
         return -1;
     }

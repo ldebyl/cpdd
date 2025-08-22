@@ -18,30 +18,30 @@ CPDD_SOURCES = $(wildcard $(SRCDIR)/cpdd/*.c)
 COMMON_SOURCES = $(wildcard $(SRCDIR)/common/*.c)
 CPDD_OBJECTS = $(CPDD_SOURCES:$(SRCDIR)/cpdd/%.c=$(OBJDIR)/cpdd/%.o) $(COMMON_SOURCES:$(SRCDIR)/common/%.c=$(OBJDIR)/common/%.o)
 
-# Test generator source files
-TESTGEN_SOURCES = $(wildcard $(SRCDIR)/testgen/*.c)
-TESTGEN_OBJECTS = $(TESTGEN_SOURCES:$(SRCDIR)/testgen/%.c=$(OBJDIR)/testgen/%.o)
-TESTGEN_TARGET = testgen
+# Syndir source files
+SYNDIR_SOURCES = $(wildcard $(SRCDIR)/syndir/*.c)
+SYNDIR_OBJECTS = $(SYNDIR_SOURCES:$(SRCDIR)/syndir/%.c=$(OBJDIR)/syndir/%.o)
+SYNDIR_TARGET = syndir
 
 # Test files
 TEST_SOURCES = $(wildcard $(TESTDIR)/*.c)
 TEST_OBJECTS = $(TEST_SOURCES:$(TESTDIR)/%.c=$(OBJDIR)/%.o)
 TEST_TARGETS = $(TEST_SOURCES:$(TESTDIR)/%.c=%)
 
-.PHONY: all clean test install uninstall testgen
+.PHONY: all clean test install uninstall syndir
 
-all: $(TARGET) $(TESTGEN_TARGET)
+all: $(TARGET) $(SYNDIR_TARGET)
 
 $(TARGET): $(CPDD_OBJECTS)
 	$(CC) $^ -o $@
 
-$(TESTGEN_TARGET): $(TESTGEN_OBJECTS)
-	$(CC) $^ -o $@
+$(SYNDIR_TARGET): $(SYNDIR_OBJECTS)
+	$(CC) $^ -lm -o $@
 
 $(OBJDIR)/cpdd/%.o: $(SRCDIR)/cpdd/%.c | $(OBJDIR)/cpdd
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
-$(OBJDIR)/testgen/%.o: $(SRCDIR)/testgen/%.c | $(OBJDIR)/testgen
+$(OBJDIR)/syndir/%.o: $(SRCDIR)/syndir/%.c | $(OBJDIR)/syndir
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
 $(OBJDIR)/common/%.o: $(SRCDIR)/common/%.c | $(OBJDIR)/common
@@ -56,8 +56,8 @@ $(OBJDIR):
 $(OBJDIR)/cpdd:
 	mkdir -p $(OBJDIR)/cpdd
 
-$(OBJDIR)/testgen:
-	mkdir -p $(OBJDIR)/testgen
+$(OBJDIR)/syndir:
+	mkdir -p $(OBJDIR)/syndir
 
 $(OBJDIR)/common:
 	mkdir -p $(OBJDIR)/common
@@ -81,20 +81,20 @@ uninstall:
 	rm -f $(DESTDIR)/usr/local/bin/$(TARGET)
 
 clean:
-	rm -rf $(OBJDIR) $(TARGET) $(TESTGEN_TARGET) $(TEST_TARGETS)
+	rm -rf $(OBJDIR) $(TARGET) $(SYNDIR_TARGET) $(TEST_TARGETS)
 
 # Debug build
 debug: CFLAGS += -g -DDEBUG
 debug: $(TARGET)
 
-testgen: $(TESTGEN_TARGET)
+syndir: $(SYNDIR_TARGET)
 
 .PHONY: help
 help:
 	@echo "Available targets:"
-	@echo "  all      - Build the main program and testgen (default)"
+	@echo "  all      - Build the main program and syndir (default)"
 	@echo "  cpdd     - Build only the main program"
-	@echo "  testgen  - Build only the test data generator"
+	@echo "  syndir   - Build only the synthetic directory generator"
 	@echo "  test     - Build and run tests"
 	@echo "  install  - Install to /usr/local/bin"
 	@echo "  uninstall- Remove from /usr/local/bin"

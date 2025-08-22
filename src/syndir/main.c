@@ -22,13 +22,13 @@
    * THE SOFTWARE.
    */
 
-#include "testgen.h"
+#include "syndir.h"
 
 int main(int argc, char *argv[]) {
-    testgen_options_t opts;
+    options_t opts;
     int parse_result;
     
-    parse_result = parse_testgen_args(argc, argv, &opts);
+    parse_result = parse_args(argc, argv, &opts);
     if (parse_result != 0) {
         if (parse_result > 0) {
             return 0;
