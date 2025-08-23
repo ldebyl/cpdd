@@ -33,7 +33,7 @@
 
 #define MD5_DIGEST_LENGTH 16
 
-static const unsigned char NULL_MD5[MD5_DIGEST_LENGTH] = {0};
+extern const unsigned char NULL_MD5[MD5_DIGEST_LENGTH];
 
 typedef struct {
     uint32_t state[4];

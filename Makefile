@@ -75,10 +75,13 @@ $(TEST_TARGETS): %: $(OBJDIR)/%.o $(filter-out $(OBJDIR)/cpdd/main.o,$(CPDD_OBJE
 
 install: $(TARGET)
 	install -d $(DESTDIR)/usr/local/bin
+	install -d $(DESTDIR)/usr/local/share/man/man1
 	install -m 755 $(TARGET) $(DESTDIR)/usr/local/bin/
+	install -m 644 $(TARGET).1 $(DESTDIR)/usr/local/share/man/man1/
 
 uninstall:
 	rm -f $(DESTDIR)/usr/local/bin/$(TARGET)
+	rm -f $(DESTDIR)/usr/local/share/man/man1/$(TARGET).1
 
 clean:
 	rm -rf $(OBJDIR) $(TARGET) $(SYNDIR_TARGET) $(TEST_TARGETS)

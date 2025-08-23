@@ -12,7 +12,7 @@
 #include <errno.h>
 #include <utime.h>
 
-#define MAX_PATH 4096
+#define MAX_PATH 16384
 #define MD5_DIGEST_LENGTH 16
 #define BUFFER_SIZE 8192
 

@@ -10,7 +10,7 @@
 #include <time.h>
 #include <errno.h>
 
-#define MAX_PATH 4096
+#define MAX_PATH 16384
 #define MAX_CONTENT_SIZE 8192
 #define MIN_CONTENT_SIZE 10
 

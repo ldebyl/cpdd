@@ -216,10 +216,7 @@ file_info_t *find_matching_file(file_info_t *ref_files, const char *src_file, co
     }
 
     while (current) {
-        //printf("Checking %s against %s\n", src_file, current->path);
         if (current->size == st.st_size) {
-            //printf("Size match: %s (%lld bytes) vs %s (%lld bytes)\n",
-            //       src_file, (long long)st.st_size, current->path, (long long)current->size);
             // Check the MD5 sum before comparing contents
             // Reference files with a unique size in the collection
             // will have a zero MD5, so we check for that too. This avoids
@@ -238,26 +235,11 @@ file_info_t *find_matching_file(file_info_t *ref_files, const char *src_file, co
                         printf("MD5 matched but content differs: %s and %s\n", src_file, current->path);
                     }
                 }
-            } else {
-                if (opts->verbose) {
-                    printf("MD5 mismatch: %s and %s\n", src_file, current->path);
-                    // print the md5 hashes for debugging
-                    printf("MD5 of %s: ", src_file);
-                    for (int i = 0; i < MD5_DIGEST_LENGTH; i++)
-                        printf("%02x", src_md5[i]);
-                    printf("\nMD5 of %s: ", current->path);
-                    for (int i = 0; i < MD5_DIGEST_LENGTH; i++)
-                        printf("%02x", current->md5[i]);
-                    printf("\n");
-                }
             }
         }
         current = current->next;
     }
 
-    if (opts->verbose) {
-        printf("No match found for %s\n", src_file);
-    }
 
     return NULL;
 }

@@ -189,9 +189,6 @@ int copy_or_link_file(const char *src, const char *dest, const char *ref, const 
         return -1;
     }
     
-    if (opts->verbose) {
-        printf("Processing: %s (%lld bytes)\n", src, (long long)src_st.st_size);
-    }
     
     if (!should_overwrite(dest, opts)) {
         if (opts->verbose) {
@@ -213,17 +210,11 @@ int copy_or_link_file(const char *src, const char *dest, const char *ref, const 
                 printf("Warning: Could not stat reference file %s\n", ref);
             }
         } else {
-            if (opts->verbose) {
-                printf("Comparing %s and %s for duplication...\n", src, ref);
-            }
 
             if (opts->link_type == LINK_HARD) {
                 if (link(ref, dest) == 0) {
                     stats->files_hard_linked++;
                     stats->bytes_hard_linked += src_st.st_size;
-                    if (opts->verbose) {
-                        printf("Hard linked %s (%lld bytes)\n", dest, (long long)ref_st.st_size);
-                    }
                     return 0;
                 } else {
                     if (opts->verbose) {
@@ -234,9 +225,6 @@ int copy_or_link_file(const char *src, const char *dest, const char *ref, const 
                 if (symlink(ref, dest) == 0) {
                     stats->files_soft_linked++;
                     stats->bytes_soft_linked += src_st.st_size;
-                    if (opts->verbose) {
-                        printf("Soft linked %s (%lld bytes)\n", dest, (long long)ref_st.st_size);
-                    }
                     return 0;
                 } else {
                     if (opts->verbose) {

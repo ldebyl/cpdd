@@ -29,6 +29,8 @@
 #include <string.h>
 #include <stdio.h>
 
+const unsigned char NULL_MD5[MD5_DIGEST_LENGTH] = {0};
+
 static const unsigned char PADDING[64] = {
     0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
