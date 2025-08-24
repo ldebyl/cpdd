@@ -58,6 +58,8 @@ typedef struct file_info {
     char *path;
     off_t size;
     unsigned char md5[MD5_DIGEST_LENGTH];
+    int needs_md5;
+    int has_md5;
     struct file_info *next;
 } file_info_t;
 
@@ -76,5 +78,11 @@ void format_bytes(off_t bytes, int human_readable, char *buffer, size_t buffer_s
 void print_statistics(const stats_t *stats, int human_readable);
 void free_file_list(file_info_t *list);
 void print_usage(const char *program_name);
+
+int terminal_supports_clear_eol(void);
+void print_status_update(const char *format, ...);
+void fprint_status_update(FILE *stream, const char *format, ...);
+void clear_status_line(void);
+void fclear_status_line(FILE *stream);
 
 #endif

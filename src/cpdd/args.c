@@ -76,13 +76,18 @@ void print_usage(const char *program_name) {
     printf("                       Additional attributes: all\n");
     printf("  --stats              Show statistics after operation\n");
     printf("  -h, --human-readable Show file sizes in human readable format\n");
-    printf("  -v, --verbose        Verbose output\n");
+    printf("  -v, --verbose        Verbose output (use multiple times for more verbosity: -vv, -vvv)\n");
     printf("  --help               Show this help message\n");
+    printf("\nVerbosity levels:\n");
+    printf("  -v     Show basic operation progress (level 1)\n");
+    printf("  -vv    Show detailed file operations (level 2)\n");
+    printf("  -vvv   Show debug information (level 3)\n");
     printf("\nExamples:\n");
     printf("  %s file1.txt file2.txt dest/           # Copy multiple files\n", program_name);
     printf("  %s -R src1/ src2/ dest/                # Copy multiple directories\n", program_name);
     printf("  %s -r ref *.txt dest/                  # Copy matching files with hard links\n", program_name);
     printf("  %s -r ref -s -R src1/ src2/ dest/      # Multiple sources with symbolic links\n", program_name);
+    printf("  %s -vv -r ref src/ dest/               # Copy with detailed verbosity\n", program_name);
     printf("\nFile matching priority:\n");
     printf("  1. File size comparison\n");
     printf("  2. MD5 checksum comparison\n");
@@ -183,7 +188,7 @@ int parse_args(int argc, char *argv[], options_t *opts) {
                 opts->human_readable = 1;
                 break;
             case 'v':
-                opts->verbose = 1;
+                opts->verbose++;
                 break;
             case 'H':
                 print_usage(argv[0]);
