@@ -5,6 +5,7 @@ INCLUDES = -Iinclude
 SRCDIR = src
 OBJDIR = obj
 TESTDIR = tests
+MANDIR = man
 TARGET = cpdd
 
 # Platform-specific settings
@@ -28,7 +29,7 @@ TEST_SOURCES = $(wildcard $(TESTDIR)/*.c)
 TEST_OBJECTS = $(TEST_SOURCES:$(TESTDIR)/%.c=$(OBJDIR)/%.o)
 TEST_TARGETS = $(TEST_SOURCES:$(TESTDIR)/%.c=%)
 
-.PHONY: all clean test install uninstall syndir
+.PHONY: all clean test install uninstall syndir docs
 
 all: $(TARGET) $(SYNDIR_TARGET)
 
@@ -73,18 +74,38 @@ test: $(TEST_TARGETS)
 $(TEST_TARGETS): %: $(OBJDIR)/%.o $(filter-out $(OBJDIR)/cpdd/main.o,$(CPDD_OBJECTS))
 	$(CC) $^ -o $@
 
-install: $(TARGET)
+install: $(TARGET) $(SYNDIR_TARGET)
 	install -d $(DESTDIR)/usr/local/bin
 	install -d $(DESTDIR)/usr/local/share/man/man1
 	install -m 755 $(TARGET) $(DESTDIR)/usr/local/bin/
-	install -m 644 $(TARGET).1 $(DESTDIR)/usr/local/share/man/man1/
+	install -m 755 $(SYNDIR_TARGET) $(DESTDIR)/usr/local/bin/
+	install -m 644 $(MANDIR)/$(TARGET).1 $(DESTDIR)/usr/local/share/man/man1/
+	install -m 644 $(MANDIR)/$(SYNDIR_TARGET).1 $(DESTDIR)/usr/local/share/man/man1/
 
 uninstall:
 	rm -f $(DESTDIR)/usr/local/bin/$(TARGET)
+	rm -f $(DESTDIR)/usr/local/bin/$(SYNDIR_TARGET)
 	rm -f $(DESTDIR)/usr/local/share/man/man1/$(TARGET).1
+	rm -f $(DESTDIR)/usr/local/share/man/man1/$(SYNDIR_TARGET).1
 
 clean:
-	rm -rf $(OBJDIR) $(TARGET) $(SYNDIR_TARGET) $(TEST_TARGETS)
+	rm -rf $(OBJDIR) $(TARGET) $(SYNDIR_TARGET) $(TEST_TARGETS) *.txt
+
+# Generate text versions of man pages for GitHub viewing
+docs: $(TARGET).txt $(SYNDIR_TARGET).txt
+
+%.txt: $(MANDIR)/%.1
+	@if command -v man >/dev/null 2>&1; then \
+		MANWIDTH=80 man -P cat ./$< > $@; \
+	elif command -v groff >/dev/null 2>&1; then \
+		groff -man -Tascii $< | col -bx > $@; \
+	elif command -v nroff >/dev/null 2>&1; then \
+		nroff -man $< | col -bx > $@; \
+	else \
+		echo "Warning: No man page formatter found. Install man, groff, or nroff to generate text documentation."; \
+		echo "Fallback: copying raw file with .txt extension"; \
+		cp $< $@; \
+	fi
 
 # Debug build
 debug: CFLAGS += -g -DDEBUG
@@ -97,8 +118,9 @@ help:
 	@echo "  cpdd     - Build only the main program"
 	@echo "  syndir   - Build only the synthetic directory generator"
 	@echo "  test     - Build and run tests"
-	@echo "  install  - Install to /usr/local/bin"
-	@echo "  uninstall- Remove from /usr/local/bin"
+	@echo "  docs     - Generate text versions of man pages for GitHub"
+	@echo "  install  - Install to /usr/local/bin and man pages"
+	@echo "  uninstall- Remove from /usr/local/bin and man pages"
 	@echo "  debug    - Build with debug symbols"
-	@echo "  clean    - Remove build artifacts"
+	@echo "  clean    - Remove build artifacts and generated docs"
 	@echo "  help     - Show this help message"

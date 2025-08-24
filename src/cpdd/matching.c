@@ -146,20 +146,64 @@ static file_info_t *collect_file_info(const char *ref_dir, const options_t *opts
 }
 
 /*
- * Check if a file size appears multiple times in the list
+ * Sorted array structure for efficient size lookups
  */
-static int size_has_duplicates(file_info_t *list, off_t size) {
-    int count = 0;
-    file_info_t *current = list;
-    
-    while (current && count < 2) {
-        if (current->size == size) {
-            count++;
-        }
-        current = current->next;
+typedef struct {
+    off_t *sizes;
+    int count;
+    int capacity;
+} sorted_sizes_t;
+
+static sorted_sizes_t *sorted_sizes_init(int initial_capacity) {
+    sorted_sizes_t *list = malloc(sizeof(sorted_sizes_t));
+    if (!list) return NULL;
+    list->sizes = malloc(sizeof(off_t) * initial_capacity);
+    if (!list->sizes) {
+        free(list);
+        return NULL;
+    }
+    list->count = 0;
+    list->capacity = initial_capacity;
+    return list;
+}
+
+static int compare_off_t(const void *a, const void *b) {
+    off_t size_a = *(const off_t *)a;
+    off_t size_b = *(const off_t *)b;
+    return (size_a > size_b) - (size_a < size_b);
+}
+
+static int sorted_sizes_contains(sorted_sizes_t *list, off_t size) {
+    if (list->count == 0) return 0;
+    return bsearch(&size, list->sizes, list->count, sizeof(off_t), compare_off_t) != NULL;
+}
+
+static void sorted_sizes_add(sorted_sizes_t *list, off_t size) {
+    /* Don't add if already exists */
+    if (sorted_sizes_contains(list, size)) {
+        return;
     }
     
-    return count > 1;
+    /* Resize if needed */
+    if (list->count >= list->capacity) {
+        list->capacity *= 2;
+        off_t *new_sizes = realloc(list->sizes, sizeof(off_t) * list->capacity);
+        if (!new_sizes) {
+            return; /* Failed to resize - keep original array */
+        }
+        list->sizes = new_sizes;
+    }
+    
+    /* Add and re-sort */
+    list->sizes[list->count++] = size;
+    qsort(list->sizes, list->count, sizeof(off_t), compare_off_t);
+}
+
+static void sorted_sizes_free(sorted_sizes_t *list) {
+    if (list) {
+        free(list->sizes);
+        free(list);
+    }
 }
 
 /*
@@ -172,6 +216,8 @@ static int size_has_duplicates(file_info_t *list, off_t size) {
 file_info_t *scan_reference_directory(const options_t *opts) {
     file_info_t *head;
     file_info_t *current;
+    sorted_sizes_t *seen_sizes;
+    sorted_sizes_t *duplicate_sizes;
     
     /* First pass: collect all files with sizes only.
      * Note that although ref_dir is included in opts, collect_file_info is called
@@ -184,18 +230,39 @@ file_info_t *scan_reference_directory(const options_t *opts) {
         return NULL;
     }
     
-    /* Second pass: mark files that need MD5 (those with duplicate sizes) */
+    /* Initialize sorted arrays for tracking sizes */
+    seen_sizes = sorted_sizes_init(total_files);
+    duplicate_sizes = sorted_sizes_init(total_files / 4); /* estimate fewer duplicates */
+    if (!seen_sizes || !duplicate_sizes) {
+        sorted_sizes_free(seen_sizes);
+        sorted_sizes_free(duplicate_sizes);
+        free_file_list(head);
+        return NULL;
+    }
+    
+    /* Build lists of seen and duplicate sizes */
     current = head;
     while (current) {
-        /* Mark files that need MD5 if this size appears multiple times */
-        if (size_has_duplicates(head, current->size)) {
-            current->needs_md5 = 1;
+        if (sorted_sizes_contains(seen_sizes, current->size)) {
+            /* Already seen this size - it's a duplicate */
+            sorted_sizes_add(duplicate_sizes, current->size);
         } else {
-            current->needs_md5 = 0;
+            /* First time seeing this size */
+            sorted_sizes_add(seen_sizes, current->size);
         }
-        /* Files with unique sizes will never need MD5 comparison */
         current = current->next;
     }
+    
+    /* Second pass: mark files that need MD5 using binary search */
+    current = head;
+    while (current) {
+        current->needs_md5 = sorted_sizes_contains(duplicate_sizes, current->size);
+        current = current->next;
+    }
+    
+    /* Cleanup sorted arrays */
+    sorted_sizes_free(seen_sizes);
+    sorted_sizes_free(duplicate_sizes);
     
     return head;
 }

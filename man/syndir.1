@@ -1,0 +1,129 @@
+.TH SYNDIR 1 "2025" "syndir" "User Commands"
+.SH NAME
+syndir \- generate test directory structures with configurable file duplication
+.SH SYNOPSIS
+.B syndir
+[\fIOPTIONS\fR] \fIREF_ROOT\fR \fISRC_ROOT\fR
+.SH DESCRIPTION
+.B syndir
+is a test data generator designed to create realistic file structures for testing content-based deduplication tools like
+.BR cpdd (1).
+It creates two directory trees: a reference directory with randomly generated files, and a source directory where a configurable percentage of files have identical content to reference files but different names and locations.
+
+.B syndir
+uses realistic file size distributions and supports advanced size control for testing various scenarios from small document collections to large media files.
+.SH OPTIONS
+.TP
+.BR \-f ", " \-\-files " " \fICOUNT\fR
+Generate \fICOUNT\fR files in total (default: 100). Files are distributed between reference and source directories.
+.TP
+.BR \-d ", " \-\-dirs " " \fICOUNT\fR
+Create \fICOUNT\fR directories in each tree (default: 10). Use 0 for flat directory structure.
+.TP
+.BR \-p ", " \-\-percent " " \fIPCT\fR
+Percentage of source files that duplicate reference content (0-100, default: 30). Higher values create more deduplication opportunities.
+.TP
+.BR \-\-size-p50 " " \fISIZE\fR
+50th percentile file size in bytes (default: 4096). Half of generated files will be smaller than this size.
+.TP
+.BR \-\-size-p95 " " \fISIZE\fR
+95th percentile file size in bytes (default: 65536). 95% of generated files will be smaller than this size.
+.TP
+.BR \-\-size-max " " \fISIZE\fR
+Maximum file size in bytes (default: 1048576). No files will exceed this size.
+.TP
+.BR \-\-size-scale " " \fIFACTOR\fR
+Scale all file sizes by this factor (default: 1.0). Use values > 1.0 for larger files, < 1.0 for smaller files.
+.TP
+.BR \-v ", " \-\-verbose
+Show verbose output during generation, including files being created and their sizes.
+.TP
+.BR \-h ", " \-\-help
+Display help message and exit.
+.SH EXAMPLES
+.TP
+.B Basic test data generation:
+syndir /tmp/ref /tmp/src
+.TP
+.B High duplication scenario:
+syndir \-f 200 \-d 20 \-p 80 /tmp/ref /tmp/src
+.TP
+.B Large test set with verbose output:
+syndir \-v \-f 1000 \-d 50 \-p 60 /tmp/ref /tmp/src
+.TP
+.B Small files (document-like):
+syndir \-\-size-p50 1024 \-\-size-p95 8192 \-\-size-max 32768 /tmp/ref /tmp/src
+.TP
+.B Large files (media-like):
+syndir \-\-size-scale 1000 \-f 50 /tmp/ref /tmp/src
+.TP
+.B Complete testing workflow:
+.nf
+syndir \-v \-f 500 \-p 50 /tmp/ref /tmp/src
+cpdd \-r /tmp/ref \-v \-\-stats /tmp/src /tmp/dest
+du \-sh /tmp/ref /tmp/src /tmp/dest
+.fi
+.SH FILE SIZE DISTRIBUTION
+.B syndir
+generates files with realistic size distributions using percentile-based parameters:
+.IP \(bu 4
+50% of files are smaller than \fB\-\-size-p50\fR
+.IP \(bu 4
+95% of files are smaller than \fB\-\-size-p95\fR
+.IP \(bu 4
+All files are smaller than \fB\-\-size-max\fR
+.IP \(bu 4
+The \fB\-\-size-scale\fR factor multiplies all sizes uniformly
+
+This approach creates natural distributions similar to real-world file collections.
+.SH DUPLICATION STRATEGY
+For source files designated as duplicates (based on \fB\-\-percent\fR):
+.IP 1. 4
+A reference file is randomly selected
+.IP 2. 4
+Content is copied exactly but with a different filename
+.IP 3. 4
+File is placed in a different directory location
+.IP 4. 4
+This creates perfect deduplication candidates for testing
+
+Non-duplicate files contain unique random content generated from a pseudorandom source.
+.SH EXIT STATUS
+.B syndir
+exits with status 0 on success, 1 on error.
+.SH FILES
+No configuration files are used. All generated content is pseudorandom.
+.SH NOTES
+Generated directories should be cleaned up after testing:
+.PP
+.RS 4
+rm \-rf /tmp/ref /tmp/src /tmp/dest
+.RE
+
+The size percentile parameters must be in ascending order: p50 ≤ p95 ≤ max.
+
+For testing scenarios, typical duplication percentages range from 20% (conservative) to 80% (aggressive deduplication scenarios).
+.SH EXAMPLES DIRECTORY
+The
+.B syndir
+distribution includes example scripts:
+.TP
+.B examples/demo.sh
+Complete demonstration of syndir and cpdd working together
+.TP
+.B examples/usage.sh
+Interactive testing scenarios
+.SH BUGS
+Report bugs at: https://github.com/32kb-net/cpdd/issues
+.SH AUTHOR
+Written by Lee de Byl <lee@32kb.net>.
+.SH COPYRIGHT
+Copyright \(co 2025 Lee de Byl. Licensed under the MIT License.
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+.SH SEE ALSO
+.BR cpdd (1),
+.BR cp (1),
+.BR find (1),
+.BR du (1),
+.BR ls (1)
