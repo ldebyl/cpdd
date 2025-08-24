@@ -89,14 +89,15 @@ uninstall:
 	rm -f $(DESTDIR)/usr/local/share/man/man1/$(SYNDIR_TARGET).1
 
 clean:
-	rm -rf $(OBJDIR) $(TARGET) $(SYNDIR_TARGET) $(TEST_TARGETS) *.txt
+	rm -rf $(OBJDIR) $(TARGET) $(SYNDIR_TARGET) $(TEST_TARGETS) docs/*.txt
 
 # Generate text versions of man pages for GitHub viewing
-docs: $(TARGET).txt $(SYNDIR_TARGET).txt
+docs: docs/$(TARGET).txt docs/$(SYNDIR_TARGET).txt
 
-%.txt: $(MANDIR)/%.1
+docs/%.txt: $(MANDIR)/%.1
+	@mkdir -p docs
 	@if command -v man >/dev/null 2>&1; then \
-		MANWIDTH=80 man -P cat ./$< > $@; \
+		MANWIDTH=80 man -P cat ./$< | col -bx > $@; \
 	elif command -v groff >/dev/null 2>&1; then \
 		groff -man -Tascii $< | col -bx > $@; \
 	elif command -v nroff >/dev/null 2>&1; then \
