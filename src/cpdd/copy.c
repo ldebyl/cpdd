@@ -388,7 +388,7 @@ int copy_directory(const options_t *opts, stats_t *stats) {
         if (opts->verbose) {
             printf("Scanning reference directory %s...\n", opts->ref_dir);
         }
-        ref_files = scan_reference_directory(opts->ref_dir);
+        ref_files = scan_reference_directory(opts);
         if (!ref_files) {
             if (opts->verbose) {
                 printf("Warning: No files found in reference directory\n");

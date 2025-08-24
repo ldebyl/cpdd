@@ -83,14 +83,14 @@ int files_identical(const char *file1, const char *file2) {
 /*
  * Helper function to recursively collect file paths and sizes
  */
-static file_info_t *collect_file_info(const char *ref_dir) {
+static file_info_t *collect_file_info(const char *ref_dir, const options_t *opts) {
     DIR *dir;
     struct dirent *entry;
     struct stat st;
     file_info_t *head = NULL;
     file_info_t *current = NULL;
     char full_path[MAX_PATH];
-    
+    printf("Scanning directory: %s\n", ref_dir);
     dir = opendir(ref_dir);
     if (!dir) {
         return NULL;
@@ -101,14 +101,14 @@ static file_info_t *collect_file_info(const char *ref_dir) {
             continue;
         }
         
-        snprintf(full_path, sizeof(full_path), "%s/%s", ref_dir, entry->d_name);
+        snprintf(full_path, sizeof(full_path), "%s/%s", opts->ref_dir, entry->d_name);
         
         if (stat(full_path, &st) != 0) {
             continue;
         }
         
         if (S_ISDIR(st.st_mode)) {
-            file_info_t *subdir_files = collect_file_info(full_path);
+            file_info_t *subdir_files = collect_file_info(full_path, opts);
             if (subdir_files) {
                 if (!head) {
                     head = subdir_files;
@@ -146,6 +146,16 @@ static file_info_t *collect_file_info(const char *ref_dir) {
     }
     
     closedir(dir);
+    // Output the number of scanned files in the linked list
+    if (opts->verbose) {
+        int count = 0;
+        file_info_t *temp = head;
+        while (temp) {
+            count++;
+            temp = temp->next;
+        }
+        printf("Scanned %d files in directory: %s\r", count, ref_dir);
+    }
     return head;
 }
 
@@ -172,12 +182,16 @@ static int size_has_duplicates(file_info_t *list, off_t size) {
  * calculates MD5 only for files with non-unique sizes.
  * Returns linked list of file_info_t structures, or NULL on error.
  */
-file_info_t *scan_reference_directory(const char *ref_dir) {
+file_info_t *scan_reference_directory(const options_t *opts) {
     file_info_t *head;
     file_info_t *current;
     
-    /* First pass: collect all files with sizes only */
-    head = collect_file_info(ref_dir);
+    /* First pass: collect all files with sizes only.
+     * Note that although ref_dir is included in opts, rollect_file_info is caleld
+     * recursively with different ref_dirs, hence it is passed as a separate parameter.
+     * This allows opts to be kept constant.
+     */
+    head = collect_file_info(opts->ref_dir, opts);
     if (!head) {
         return NULL;
     }
