@@ -1,98 +1,58 @@
 # Cross-platform Makefile for cpdd
 CC ?= cc
-CFLAGS = -std=c99 -Wall -Wextra -pedantic -O2 -D_POSIX_C_SOURCE=200809L -Wno-deprecated-declarations -Wno-format-truncation
-INCLUDES = -Iinclude
-SRCDIR = src
-OBJDIR = obj
-TESTDIR = tests
-MANDIR = man
-TARGET = cpdd
+CFLAGS = -std=c99 -Wall -Wextra -pedantic -O2 -Iinclude
 
 # Platform-specific settings
 UNAME_S := $(shell uname -s)
-CFLAGS += $(shell if [ "$(UNAME_S)" = "Linux" ]; then echo "-D_GNU_SOURCE"; fi)
+ifeq ($(UNAME_S),Linux)
+CFLAGS += -D_GNU_SOURCE
+endif
 
-# CPDD source files
-CPDD_SOURCES = $(wildcard $(SRCDIR)/cpdd/*.c)
-COMMON_SOURCES = $(wildcard $(SRCDIR)/common/*.c)
-CPDD_OBJECTS = $(CPDD_SOURCES:$(SRCDIR)/cpdd/%.c=$(OBJDIR)/cpdd/%.o) $(COMMON_SOURCES:$(SRCDIR)/common/%.c=$(OBJDIR)/common/%.o)
+# Source files
+CPDD_SRCS = src/cpdd/args.c src/cpdd/copy.c src/cpdd/main.c src/cpdd/matching.c src/common/md5.c src/common/terminal.c
+SYNDIR_SRCS = src/syndir/args.c src/syndir/core.c src/syndir/main.c
 
-# Syndir source files
-SYNDIR_SOURCES = $(wildcard $(SRCDIR)/syndir/*.c)
-SYNDIR_OBJECTS = $(SYNDIR_SOURCES:$(SRCDIR)/syndir/%.c=$(OBJDIR)/syndir/%.o)
-SYNDIR_TARGET = syndir
+# Object files
+CPDD_OBJS = $(CPDD_SRCS:src/%.c=obj/%.o)
+SYNDIR_OBJS = $(SYNDIR_SRCS:src/%.c=obj/%.o)
 
-# Test files
-TEST_SOURCES = $(wildcard $(TESTDIR)/*.c)
-TEST_OBJECTS = $(TEST_SOURCES:$(TESTDIR)/%.c=$(OBJDIR)/%.o)
-TEST_TARGETS = $(TEST_SOURCES:$(TESTDIR)/%.c=%)
+.PHONY: all clean install uninstall docs help
 
-.PHONY: all clean test install uninstall syndir docs release universal
+all: cpdd syndir
 
-all: $(TARGET) $(SYNDIR_TARGET)
+cpdd: $(CPDD_OBJS)
+	$(CC) $(CPDD_OBJS) -o cpdd
 
-$(TARGET): $(CPDD_OBJECTS)
-	$(CC) $^ -o $@
+syndir: $(SYNDIR_OBJS)
+	$(CC) $(SYNDIR_OBJS) -lm -o syndir
 
-$(SYNDIR_TARGET): $(SYNDIR_OBJECTS)
-	$(CC) $^ -lm -o $@
+obj/%.o: src/%.c | obj obj/cpdd obj/syndir obj/common
+	$(CC) $(CFLAGS) -c $< -o $@
 
-$(OBJDIR)/cpdd/%.o: $(SRCDIR)/cpdd/%.c | $(OBJDIR)/cpdd
-	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
-
-$(OBJDIR)/syndir/%.o: $(SRCDIR)/syndir/%.c | $(OBJDIR)/syndir
-	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
-
-$(OBJDIR)/common/%.o: $(SRCDIR)/common/%.c | $(OBJDIR)/common
-	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
-
-$(OBJDIR)/%.o: $(TESTDIR)/%.c | $(OBJDIR)
-	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
-
-$(OBJDIR):
-	mkdir -p $(OBJDIR)
-
-$(OBJDIR)/cpdd:
-	mkdir -p $(OBJDIR)/cpdd
-
-$(OBJDIR)/syndir:
-	mkdir -p $(OBJDIR)/syndir
-
-$(OBJDIR)/common:
-	mkdir -p $(OBJDIR)/common
-
-test: $(TEST_TARGETS)
-	@echo "Running tests..."
-	@for test in $(TEST_TARGETS); do \
-		echo "Running $$test..."; \
-		./$$test || exit 1; \
-	done
-	@echo "All tests passed!"
-
-$(TEST_TARGETS): %: $(OBJDIR)/%.o $(filter-out $(OBJDIR)/cpdd/main.o,$(CPDD_OBJECTS))
-	$(CC) $^ -o $@
-
-install: $(TARGET) $(SYNDIR_TARGET)
-	install -d $(DESTDIR)/usr/local/bin
-	install -d $(DESTDIR)/usr/local/share/man/man1
-	install -m 755 $(TARGET) $(DESTDIR)/usr/local/bin/
-	install -m 755 $(SYNDIR_TARGET) $(DESTDIR)/usr/local/bin/
-	install -m 644 $(MANDIR)/$(TARGET).1 $(DESTDIR)/usr/local/share/man/man1/
-	install -m 644 $(MANDIR)/$(SYNDIR_TARGET).1 $(DESTDIR)/usr/local/share/man/man1/
-
-uninstall:
-	rm -f $(DESTDIR)/usr/local/bin/$(TARGET)
-	rm -f $(DESTDIR)/usr/local/bin/$(SYNDIR_TARGET)
-	rm -f $(DESTDIR)/usr/local/share/man/man1/$(TARGET).1
-	rm -f $(DESTDIR)/usr/local/share/man/man1/$(SYNDIR_TARGET).1
+obj obj/cpdd obj/syndir obj/common:
+	mkdir -p $@
 
 clean:
-	rm -rf $(OBJDIR) $(TARGET) $(SYNDIR_TARGET) $(TEST_TARGETS) docs/*.txt
+	rm -rf obj cpdd syndir docs/*.txt
+
+install: cpdd syndir
+	install -d $(DESTDIR)/usr/local/bin
+	install -d $(DESTDIR)/usr/local/share/man/man1
+	install -m 755 cpdd $(DESTDIR)/usr/local/bin/
+	install -m 755 syndir $(DESTDIR)/usr/local/bin/
+	install -m 644 man/cpdd.1 $(DESTDIR)/usr/local/share/man/man1/
+	install -m 644 man/syndir.1 $(DESTDIR)/usr/local/share/man/man1/
+
+uninstall:
+	rm -f $(DESTDIR)/usr/local/bin/cpdd
+	rm -f $(DESTDIR)/usr/local/bin/syndir
+	rm -f $(DESTDIR)/usr/local/share/man/man1/cpdd.1
+	rm -f $(DESTDIR)/usr/local/share/man/man1/syndir.1
 
 # Generate text versions of man pages for GitHub viewing
-docs: docs/$(TARGET).txt docs/$(SYNDIR_TARGET).txt
+docs: docs/cpdd.txt docs/syndir.txt
 
-docs/%.txt: $(MANDIR)/%.1
+docs/%.txt: man/%.1
 	@mkdir -p docs
 	@if command -v man >/dev/null 2>&1; then \
 		MANWIDTH=80 man -P cat ./$< | col -bx > $@; \
@@ -106,53 +66,14 @@ docs/%.txt: $(MANDIR)/%.1
 		cp $< $@; \
 	fi
 
-# Debug build
-debug: CFLAGS += -g -DDEBUG
-debug: $(TARGET)
-
-# Release build (with static linking on supported platforms)
-release: CFLAGS += -O3 -DNDEBUG
-release: $(TARGET) $(SYNDIR_TARGET)
-	@if [ "$(STATIC_FLAGS)" = "-static" ]; then \
-		$(CC) $(CFLAGS) $(STATIC_FLAGS) $(CPDD_OBJECTS) -o $(TARGET); \
-		$(CC) $(CFLAGS) $(STATIC_FLAGS) $(SYNDIR_OBJECTS) -lm -o $(SYNDIR_TARGET); \
-	fi
-
-# Universal binary build for macOS
-universal: | $(OBJDIR)/cpdd $(OBJDIR)/syndir $(OBJDIR)/common
-	@echo "Building universal binaries for macOS..."
-	
-	# Build x86_64 binaries
-	@echo "Building x86_64 version..."
-	$(CC) -arch x86_64 $(CFLAGS) $(INCLUDES) $(SRCDIR)/cpdd/*.c $(SRCDIR)/common/*.c -o $(TARGET).x86_64
-	$(CC) -arch x86_64 $(CFLAGS) $(INCLUDES) $(SRCDIR)/syndir/*.c -lm -o $(SYNDIR_TARGET).x86_64
-	
-	# Build arm64 binaries
-	@echo "Building arm64 version..."
-	$(CC) -arch arm64 $(CFLAGS) $(INCLUDES) $(SRCDIR)/cpdd/*.c $(SRCDIR)/common/*.c -o $(TARGET).arm64
-	$(CC) -arch arm64 $(CFLAGS) $(INCLUDES) $(SRCDIR)/syndir/*.c -lm -o $(SYNDIR_TARGET).arm64
-	
-	# Create universal binaries using lipo
-	@echo "Creating universal binaries..."
-	lipo -create -output $(TARGET) $(TARGET).x86_64 $(TARGET).arm64
-	lipo -create -output $(SYNDIR_TARGET) $(SYNDIR_TARGET).x86_64 $(SYNDIR_TARGET).arm64
-	
-	# Clean up architecture-specific binaries
-	rm -f $(TARGET).x86_64 $(TARGET).arm64 $(SYNDIR_TARGET).x86_64 $(SYNDIR_TARGET).arm64
-	
-	@echo "Universal binaries created successfully"
-	@file $(TARGET) $(SYNDIR_TARGET)
-
 .PHONY: help
 help:
 	@echo "Available targets:"
 	@echo "  all      - Build the main program and syndir (default)"
 	@echo "  cpdd     - Build only the main program"
 	@echo "  syndir   - Build only the synthetic directory generator"
-	@echo "  test     - Build and run tests"
 	@echo "  docs     - Generate text versions of man pages for GitHub"
 	@echo "  install  - Install to /usr/local/bin and man pages"
 	@echo "  uninstall- Remove from /usr/local/bin and man pages"
-	@echo "  debug    - Build with debug symbols"
 	@echo "  clean    - Remove build artifacts and generated docs"
 	@echo "  help     - Show this help message"
