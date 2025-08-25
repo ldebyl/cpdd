@@ -1,5 +1,5 @@
 # Cross-platform Makefile for cpdd
-CC = gcc
+CC = $(shell if command -v gcc >/dev/null 2>&1; then echo "gcc"; elif command -v clang >/dev/null 2>&1; then echo "clang"; else echo "cc"; fi)
 CFLAGS = -std=c99 -Wall -Wextra -pedantic -O2 -D_POSIX_C_SOURCE=200809L -Wno-deprecated-declarations -Wno-format-truncation
 INCLUDES = -Iinclude
 SRCDIR = src
