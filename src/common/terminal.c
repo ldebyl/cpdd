@@ -24,6 +24,7 @@
 
 #include "cpdd.h"
 #include <stdarg.h>
+#include <sys/ioctl.h>
 
 static int terminal_capability_checked = 0;
 static int supports_clear_eol = 0;
@@ -121,13 +122,19 @@ void print_stats_at_bottom(const char *format, ...) {
     va_start(args, format);
     
     if (terminal_supports_clear_eol()) {
-        printf("\033[s");
-        printf("\033[999;1H");
-        printf("\r");
-        vprintf(format, args);
-        printf("\033[K");
-        printf("\033[u");
-        fflush(stdout);
+        struct winsize ws;
+        if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0 && ws.ws_row > 0) {
+            printf("\033[s");
+            printf("\033[%d;1H", ws.ws_row);
+            printf("\r");
+            vprintf(format, args);
+            printf("\033[K");
+            printf("\033[u");
+            fflush(stdout);
+        } else {
+            vprintf(format, args);
+            printf("\n");
+        }
     } else {
         vprintf(format, args);
         printf("\n");

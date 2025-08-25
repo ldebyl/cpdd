@@ -10,9 +10,7 @@ TARGET = cpdd
 
 # Platform-specific settings
 UNAME_S := $(shell uname -s)
-ifeq ($(UNAME_S),Linux)
-    CFLAGS += -D_GNU_SOURCE
-endif
+CFLAGS += $(shell if [ "$(UNAME_S)" = "Linux" ]; then echo "-D_GNU_SOURCE"; fi)
 
 # CPDD source files
 CPDD_SOURCES = $(wildcard $(SRCDIR)/cpdd/*.c)
@@ -115,10 +113,10 @@ debug: $(TARGET)
 # Release build (with static linking on supported platforms)
 release: CFLAGS += -O3 -DNDEBUG
 release: $(TARGET) $(SYNDIR_TARGET)
-ifeq ($(STATIC_FLAGS),-static)
-	$(CC) $(CFLAGS) $(STATIC_FLAGS) $(CPDD_OBJECTS) -o $(TARGET)
-	$(CC) $(CFLAGS) $(STATIC_FLAGS) $(SYNDIR_OBJECTS) -lm -o $(SYNDIR_TARGET)
-endif
+	@if [ "$(STATIC_FLAGS)" = "-static" ]; then \
+		$(CC) $(CFLAGS) $(STATIC_FLAGS) $(CPDD_OBJECTS) -o $(TARGET); \
+		$(CC) $(CFLAGS) $(STATIC_FLAGS) $(SYNDIR_OBJECTS) -lm -o $(SYNDIR_TARGET); \
+	fi
 
 # Universal binary build for macOS
 universal: | $(OBJDIR)/cpdd $(OBJDIR)/syndir $(OBJDIR)/common

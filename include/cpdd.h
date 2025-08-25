@@ -11,6 +11,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <utime.h>
+#include <signal.h>
 
 #define MAX_PATH 16384
 #define MD5_DIGEST_LENGTH 16
@@ -86,5 +87,10 @@ void fprint_status_update(FILE *stream, const char *format, ...);
 void clear_status_line(void);
 void fclear_status_line(FILE *stream);
 void print_stats_at_bottom(const char *format, ...);
+
+void setup_signal_handlers(void);
+void register_incomplete_file(const char *path);
+void unregister_incomplete_file(void);
+void cleanup_incomplete_file(void);
 
 #endif

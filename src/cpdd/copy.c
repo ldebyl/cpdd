@@ -24,6 +24,48 @@
 
 #include "cpdd.h"
 
+// Path of the file currently being copied (for cleanup on signal)
+static char *current_incomplete_file = NULL;
+
+// Signal handler to clean up incomplete file on termination
+static void signal_handler(int sig) {
+    cleanup_incomplete_file();
+    exit(128 + sig);
+}
+
+// Sets up signal handlers for SIGINT and SIGTERM
+void setup_signal_handlers(void) {
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
+    signal(SIGHUP, signal_handler);
+    signal(SIGQUIT, signal_handler);
+    signal(SIGPIPE, signal_handler);
+}
+
+// Registers the path of the file currently being copied
+void register_incomplete_file(const char *path) {
+    if (current_incomplete_file) {
+        free(current_incomplete_file);
+    }
+    current_incomplete_file = strdup(path);
+}
+
+// Unregisters the current incomplete file without deleting it
+void unregister_incomplete_file(void) {
+    if (current_incomplete_file) {
+        free(current_incomplete_file);
+        current_incomplete_file = NULL;
+    }
+}
+
+// Cleans up the incomplete file if it exists
+void cleanup_incomplete_file(void) {
+    if (current_incomplete_file) {
+        unlink(current_incomplete_file);
+        unregister_incomplete_file();
+    }
+}
+
 /* Determins whether a destination file should be overwritten,
  * by firstly determining if the destination exists, whether the
  * user has specified --no-clobber, and optionally interactively
@@ -112,7 +154,7 @@ void format_bytes(off_t bytes, int human_readable, char *buffer, size_t buffer_s
     }
 }
 
-/* Prints statistics froma copy operation. if requested */
+/* String formats statistics from a copy operation. */
 void format_stats_line(const stats_t *stats, int human_readable, char *buffer, size_t buffer_size) {
     char total_bytes_str[32];
     off_t total_bytes = stats->bytes_copied + stats->bytes_hard_linked + stats->bytes_soft_linked;
@@ -124,6 +166,7 @@ void format_stats_line(const stats_t *stats, int human_readable, char *buffer, s
              stats->files_copied, stats->files_hard_linked + stats->files_soft_linked, 
              stats->files_skipped, total_files, total_bytes_str);
 }
+
 
 void print_statistics(const stats_t *stats, int human_readable) {
     char copied_bytes[32], linked_bytes[32], soft_linked_bytes[32];
@@ -146,6 +189,9 @@ void print_statistics(const stats_t *stats, int human_readable) {
     printf("  Total files:      %d (%s)\n", total_files, total_bytes_str);
 }
 
+/* Ensures that the directory structure for dest_path exists,
+ * creating directories as needed, using the permissions of
+ * the source path or its parent directory */
 int create_directory_structure(const char *src_path, const char *dest_path) {
     struct stat st;
     char dest_dir[MAX_PATH];
@@ -191,6 +237,7 @@ int create_directory_structure(const char *src_path, const char *dest_path) {
     return 0;
 }
 
+// Copies a file from src to dest, optionally creating a hard or soft link
 int copy_or_link_file(const char *src, const char *dest, const char *ref, const options_t *opts, stats_t *stats) {
     struct stat src_st;
     int src_fd, dest_fd;
@@ -249,12 +296,14 @@ int copy_or_link_file(const char *src, const char *dest, const char *ref, const 
         return -1;
     }
     
+    register_incomplete_file(dest);
+    
     while ((bytes_read = read(src_fd, buffer, BUFFER_SIZE)) > 0) {
         bytes_written = write(dest_fd, buffer, bytes_read);
         if (bytes_written != bytes_read) {
             close(src_fd);
             close(dest_fd);
-            unlink(dest);
+            cleanup_incomplete_file();
             return -1;
         }
     }
@@ -263,20 +312,22 @@ int copy_or_link_file(const char *src, const char *dest, const char *ref, const 
     close(dest_fd);
     
     if (bytes_read < 0) {
-        unlink(dest);
+        cleanup_incomplete_file();
         return -1;
     }
     
     if (opts->preserve.mode || opts->preserve.ownership || opts->preserve.timestamps) {
         if (preserve_file_attributes(src, dest, &opts->preserve) != 0) {
             if (opts->verbose) {
-                printf("Warning: Failed to preserve attributes for %s\n", dest);
+                fprintf(stderr, "Warning: Failed to preserve attributes for %s\n", dest);
             }
         }
     }
     
     stats->files_copied++;
     stats->bytes_copied += src_st.st_size;
+    
+    unregister_incomplete_file();
     
     return 0;
 }
@@ -306,7 +357,7 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
     
     if (opts->preserve.mode || opts->preserve.ownership || opts->preserve.timestamps) {
         if (preserve_file_attributes(src_path, dest_path, &opts->preserve) != 0 && opts->verbose) {
-            printf("Warning: Failed to preserve attributes for directory %s\n", dest_path);
+            fprintf(stderr, "Warning: Failed to preserve attributes for directory %s\n", dest_path);
         }
     }
     

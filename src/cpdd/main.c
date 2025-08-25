@@ -29,6 +29,10 @@ int main(int argc, char *argv[]) {
     stats_t stats = {0};
     int parse_result;
     
+    // Prepare to receive and handle Unix signals
+    setup_signal_handlers();
+    
+    // Parse command-line arguments
     parse_result = parse_args(argc, argv, &opts);
     if (parse_result != 0) {
         if (parse_result > 0) {
@@ -37,6 +41,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     
+    // Perform the copy operation
     if (copy_directory(&opts, &stats) != 0) {
         if (opts.show_stats && opts.verbose == 0) {
             clear_status_line();
@@ -45,13 +50,17 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     
+    // If verbosity is disabled, and statistics are to be shown,
+    // there may be remnant status line to clear
     if (opts.show_stats && opts.verbose == 0) {
         clear_status_line();
     }
     
+    // Print statistics if requested
     if (opts.show_stats) {
         print_statistics(&stats, opts.human_readable);
     }
     
+    // The process succeeded successfully
     return 0;
 }
