@@ -29,7 +29,7 @@ TEST_SOURCES = $(wildcard $(TESTDIR)/*.c)
 TEST_OBJECTS = $(TEST_SOURCES:$(TESTDIR)/%.c=$(OBJDIR)/%.o)
 TEST_TARGETS = $(TEST_SOURCES:$(TESTDIR)/%.c=%)
 
-.PHONY: all clean test install uninstall syndir docs
+.PHONY: all clean test install uninstall syndir docs release universal
 
 all: $(TARGET) $(SYNDIR_TARGET)
 
@@ -111,6 +111,39 @@ docs/%.txt: $(MANDIR)/%.1
 # Debug build
 debug: CFLAGS += -g -DDEBUG
 debug: $(TARGET)
+
+# Release build (with static linking on supported platforms)
+release: CFLAGS += -O3 -DNDEBUG
+release: $(TARGET) $(SYNDIR_TARGET)
+ifeq ($(STATIC_FLAGS),-static)
+	$(CC) $(CFLAGS) $(STATIC_FLAGS) $(CPDD_OBJECTS) -o $(TARGET)
+	$(CC) $(CFLAGS) $(STATIC_FLAGS) $(SYNDIR_OBJECTS) -lm -o $(SYNDIR_TARGET)
+endif
+
+# Universal binary build for macOS
+universal: | $(OBJDIR)/cpdd $(OBJDIR)/syndir $(OBJDIR)/common
+	@echo "Building universal binaries for macOS..."
+	
+	# Build x86_64 binaries
+	@echo "Building x86_64 version..."
+	$(CC) -arch x86_64 $(CFLAGS) $(INCLUDES) $(SRCDIR)/cpdd/*.c $(SRCDIR)/common/*.c -o $(TARGET).x86_64
+	$(CC) -arch x86_64 $(CFLAGS) $(INCLUDES) $(SRCDIR)/syndir/*.c -lm -o $(SYNDIR_TARGET).x86_64
+	
+	# Build arm64 binaries
+	@echo "Building arm64 version..."
+	$(CC) -arch arm64 $(CFLAGS) $(INCLUDES) $(SRCDIR)/cpdd/*.c $(SRCDIR)/common/*.c -o $(TARGET).arm64
+	$(CC) -arch arm64 $(CFLAGS) $(INCLUDES) $(SRCDIR)/syndir/*.c -lm -o $(SYNDIR_TARGET).arm64
+	
+	# Create universal binaries using lipo
+	@echo "Creating universal binaries..."
+	lipo -create -output $(TARGET) $(TARGET).x86_64 $(TARGET).arm64
+	lipo -create -output $(SYNDIR_TARGET) $(SYNDIR_TARGET).x86_64 $(SYNDIR_TARGET).arm64
+	
+	# Clean up architecture-specific binaries
+	rm -f $(TARGET).x86_64 $(TARGET).arm64 $(SYNDIR_TARGET).x86_64 $(SYNDIR_TARGET).arm64
+	
+	@echo "Universal binaries created successfully"
+	@file $(TARGET) $(SYNDIR_TARGET)
 
 .PHONY: help
 help:

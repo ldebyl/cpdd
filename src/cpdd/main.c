@@ -38,8 +38,15 @@ int main(int argc, char *argv[]) {
     }
     
     if (copy_directory(&opts, &stats) != 0) {
+        if (opts.show_stats && opts.verbose == 0) {
+            clear_status_line();
+        }
         fprintf(stderr, "Error: Copy operation failed\n");
         return 1;
+    }
+    
+    if (opts.show_stats && opts.verbose == 0) {
+        clear_status_line();
     }
     
     if (opts.show_stats) {

@@ -113,6 +113,18 @@ void format_bytes(off_t bytes, int human_readable, char *buffer, size_t buffer_s
 }
 
 /* Prints statistics froma copy operation. if requested */
+void format_stats_line(const stats_t *stats, int human_readable, char *buffer, size_t buffer_size) {
+    char total_bytes_str[32];
+    off_t total_bytes = stats->bytes_copied + stats->bytes_hard_linked + stats->bytes_soft_linked;
+    int total_files = stats->files_copied + stats->files_hard_linked + stats->files_soft_linked;
+    
+    format_bytes(total_bytes, human_readable, total_bytes_str, sizeof(total_bytes_str));
+    
+    snprintf(buffer, buffer_size, "Files: %d copied, %d linked, %d skipped | Total: %d files (%s)", 
+             stats->files_copied, stats->files_hard_linked + stats->files_soft_linked, 
+             stats->files_skipped, total_files, total_bytes_str);
+}
+
 void print_statistics(const stats_t *stats, int human_readable) {
     char copied_bytes[32], linked_bytes[32], soft_linked_bytes[32];
     
@@ -187,15 +199,6 @@ int copy_or_link_file(const char *src, const char *dest, const char *ref, const 
     
     if (stat(src, &src_st) != 0) {
         return -1;
-    }
-    
-    
-    if (!should_overwrite(dest, opts)) {
-        if (opts->verbose) {
-            printf("skipping '%s' (not overwriting)\n", dest);
-        }
-        stats->files_skipped++;
-        return 0;
     }
     
     if (ref && opts->link_type != LINK_NONE) {
@@ -329,6 +332,15 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
             }
         } else if (S_ISREG(st.st_mode)) {
             matching_file = NULL;
+            
+            if (!should_overwrite(dest_full, opts)) {
+                if (opts->verbose) {
+                    printf("skipping '%s' (not overwriting)\n", dest_full);
+                }
+                stats->files_skipped++;
+                continue;
+            }
+            
             if (ref_files) {
                 matching_file = find_matching_file(ref_files, src_full, opts);
             }
@@ -353,6 +365,17 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
                            matching_file->path);
                 } else {
                     printf("%s -> %s (copied)\n", src_full, dest_full);
+                }
+            }
+            
+            if (opts->show_stats) {
+                char stats_buffer[256];
+                format_stats_line(stats, opts->human_readable, stats_buffer, sizeof(stats_buffer));
+                
+                if (opts->verbose == 0) {
+                    print_status_update("%s", stats_buffer);
+                } else {
+                    print_stats_at_bottom("%s", stats_buffer);
                 }
             }
         }
@@ -440,6 +463,14 @@ int copy_directory(const options_t *opts, stats_t *stats) {
         } else {
             file_info_t *matching_file = NULL;
             
+            if (!should_overwrite(dest_path, opts)) {
+                if (opts->verbose) {
+                    printf("skipping '%s' (not overwriting)\n", dest_path);
+                }
+                stats->files_skipped++;
+                continue;
+            }
+            
             if (ref_files) {
                 matching_file = find_matching_file(ref_files, src_path, opts);
                 if (opts->verbose && matching_file) {
@@ -467,6 +498,17 @@ int copy_directory(const options_t *opts, stats_t *stats) {
                            matching_file->path);
                 } else {
                     printf("%s -> %s (copied)\n", src_path, dest_path);
+                }
+            }
+            
+            if (opts->show_stats) {
+                char stats_buffer[256];
+                format_stats_line(stats, opts->human_readable, stats_buffer, sizeof(stats_buffer));
+                
+                if (opts->verbose == 0) {
+                    print_status_update("%s", stats_buffer);
+                } else {
+                    print_stats_at_bottom("%s", stats_buffer);
                 }
             }
         }

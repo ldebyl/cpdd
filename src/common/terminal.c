@@ -115,3 +115,23 @@ void fclear_status_line(FILE *stream) {
         fflush(stream);
     }
 }
+
+void print_stats_at_bottom(const char *format, ...) {
+    va_list args;
+    va_start(args, format);
+    
+    if (terminal_supports_clear_eol()) {
+        printf("\033[s");
+        printf("\033[999;1H");
+        printf("\r");
+        vprintf(format, args);
+        printf("\033[K");
+        printf("\033[u");
+        fflush(stdout);
+    } else {
+        vprintf(format, args);
+        printf("\n");
+    }
+    
+    va_end(args);
+}

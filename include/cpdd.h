@@ -75,6 +75,7 @@ int should_overwrite(const char *dest_path, const options_t *opts);
 int preserve_file_attributes(const char *src, const char *dest, const preserve_t *preserve);
 int parse_preserve_list(const char *preserve_list, preserve_t *preserve);
 void format_bytes(off_t bytes, int human_readable, char *buffer, size_t buffer_size);
+void format_stats_line(const stats_t *stats, int human_readable, char *buffer, size_t buffer_size);
 void print_statistics(const stats_t *stats, int human_readable);
 void free_file_list(file_info_t *list);
 void print_usage(const char *program_name);
@@ -84,5 +85,6 @@ void print_status_update(const char *format, ...);
 void fprint_status_update(FILE *stream, const char *format, ...);
 void clear_status_line(void);
 void fclear_status_line(FILE *stream);
+void print_stats_at_bottom(const char *format, ...);
 
 #endif
