@@ -4,17 +4,17 @@ CFLAGS = -std=c99 -Wall -Wextra -pedantic -O2 -Iinclude
 
 # Platform-specific settings
 UNAME_S := $(shell uname -s)
-ifeq ($(UNAME_S),Linux)
-CFLAGS += -D_GNU_SOURCE
-endif
+#ifeq ($(UNAME_S),Linux)
+#CFLAGS += -D_GNU_SOURCE
+#endif
 
 # Source files
 CPDD_SRCS = src/cpdd/args.c src/cpdd/copy.c src/cpdd/main.c src/cpdd/matching.c src/common/md5.c src/common/terminal.c
 SYNDIR_SRCS = src/syndir/args.c src/syndir/core.c src/syndir/main.c
 
 # Object files
-CPDD_OBJS = $(CPDD_SRCS:src/%.c=obj/%.o)
-SYNDIR_OBJS = $(SYNDIR_SRCS:src/%.c=obj/%.o)
+CPDD_OBJS = obj/cpdd/args.o obj/cpdd/copy.o obj/cpdd/main.o obj/cpdd/matching.o obj/common/md5.o obj/common/terminal.o
+SYNDIR_OBJS = obj/syndir/args.o obj/syndir/core.o obj/syndir/main.o
 
 .PHONY: all clean install uninstall docs help
 
@@ -26,10 +26,16 @@ cpdd: $(CPDD_OBJS)
 syndir: $(SYNDIR_OBJS)
 	$(CC) $(SYNDIR_OBJS) -lm -o syndir
 
-obj/%.o: src/%.c | obj obj/cpdd obj/syndir obj/common
+obj/cpdd/%.o: src/cpdd/%.c | obj/cpdd
 	$(CC) $(CFLAGS) -c $< -o $@
 
-obj obj/cpdd obj/syndir obj/common:
+obj/syndir/%.o: src/syndir/%.c | obj/syndir
+	$(CC) $(CFLAGS) -c $< -o $@
+
+obj/common/%.o: src/common/%.c | obj/common
+	$(CC) $(CFLAGS) -c $< -o $@
+
+obj/cpdd obj/syndir obj/common:
 	mkdir -p $@
 
 clean:
