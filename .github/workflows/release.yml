@@ -1,0 +1,226 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          # Linux builds
+          - os: ubuntu-20.04
+            platform: linux-x86_64
+            arch: x86_64
+            cc: gcc
+            static_flags: "-static"
+          - os: ubuntu-20.04
+            platform: linux-aarch64
+            arch: aarch64
+            cc: aarch64-linux-gnu-gcc
+            static_flags: "-static"
+          
+          # macOS universal binary (combines x86_64 and ARM64)
+          - os: macos-12
+            platform: darwin-universal
+            arch: universal
+            cc: clang
+            static_flags: ""
+          
+          # FreeBSD build (via cross-compilation)
+          - os: ubuntu-20.04
+            platform: freebsd-x86_64
+            arch: x86_64
+            cc: x86_64-unknown-freebsd13-clang
+            static_flags: "-static"
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup cross-compilation for ARM64 Linux
+      if: matrix.platform == 'linux-aarch64'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc-aarch64-linux-gnu
+
+    - name: Setup FreeBSD cross-compilation
+      if: matrix.platform == 'freebsd-x86_64'
+      run: |
+        # Install FreeBSD cross-compilation toolchain
+        wget -q https://github.com/freebsd/freebsd-cross-build/releases/download/13.2-RELEASE/freebsd-13.2-cross-toolchain-x86_64.tar.xz
+        sudo tar -xf freebsd-13.2-cross-toolchain-x86_64.tar.xz -C /usr/local
+        export PATH="/usr/local/freebsd-cross/bin:$PATH"
+
+    - name: Get version
+      id: version
+      run: |
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+        else
+          echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Build binaries
+      run: |
+        # Set compiler and flags based on platform
+        export CC="${{ matrix.cc }}"
+        export STATIC_FLAGS="${{ matrix.static_flags }}"
+        
+        # Create release build
+        if [[ "${{ matrix.platform }}" == "freebsd-x86_64" ]]; then
+          export PATH="/usr/local/freebsd-cross/bin:$PATH"
+          export CFLAGS="-std=c99 -Wall -Wextra -pedantic -O2 -D_POSIX_C_SOURCE=200809L -Wno-deprecated-declarations --target=x86_64-unknown-freebsd13 --sysroot=/usr/local/freebsd-cross/sysroot"
+          make clean
+          make release PLATFORM=${{ matrix.platform }}
+        elif [[ "${{ matrix.platform }}" == "darwin-universal" ]]; then
+          # Build universal binaries on macOS
+          export MACOSX_DEPLOYMENT_TARGET=10.15
+          make clean
+          make universal
+        else
+          make clean
+          make release PLATFORM=${{ matrix.platform }}
+        fi
+
+    - name: Create release archive
+      run: |
+        VERSION="${{ steps.version.outputs.VERSION }}"
+        ARCHIVE_NAME="cpdd-${VERSION#v}-${{ matrix.platform }}"
+        
+        mkdir -p release/$ARCHIVE_NAME
+        
+        # Copy binaries
+        cp cpdd syndir release/$ARCHIVE_NAME/
+        
+        # Copy documentation
+        cp README release/$ARCHIVE_NAME/
+        cp -r man release/$ARCHIVE_NAME/
+        
+        # Generate text documentation
+        make docs
+        cp -r docs release/$ARCHIVE_NAME/
+        
+        # Create archive
+        cd release
+        if [[ "${{ matrix.platform }}" == *"darwin"* ]]; then
+          tar -czf ${ARCHIVE_NAME}.tar.gz $ARCHIVE_NAME
+        else
+          tar -czf ${ARCHIVE_NAME}.tar.gz $ARCHIVE_NAME
+        fi
+        
+        # Calculate checksums
+        sha256sum ${ARCHIVE_NAME}.tar.gz > ${ARCHIVE_NAME}.tar.gz.sha256
+        
+        echo "ARCHIVE_NAME=${ARCHIVE_NAME}" >> $GITHUB_ENV
+        echo "ARCHIVE_PATH=release/${ARCHIVE_NAME}.tar.gz" >> $GITHUB_ENV
+        echo "CHECKSUM_PATH=release/${ARCHIVE_NAME}.tar.gz.sha256" >> $GITHUB_ENV
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.ARCHIVE_NAME }}
+        path: |
+          ${{ env.ARCHIVE_PATH }}
+          ${{ env.CHECKSUM_PATH }}
+
+  test:
+    name: Test ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+          - os: macos-latest
+            platform: darwin
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Build and test
+      run: |
+        make clean
+        make all
+        make test
+
+  release:
+    name: Create GitHub Release
+    needs: [build, test]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: Get version
+      id: version
+      run: |
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+        else
+          echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Create release notes
+      run: |
+        cat > release_notes.md << 'EOF'
+        # cpdd ${{ steps.version.outputs.VERSION }}
+        
+        Content-based copy with deduplication - Binary releases for multiple platforms.
+        
+        ## Downloads
+        
+        Choose the appropriate binary for your platform:
+        
+        - **Linux x86_64**: `cpdd-*-linux-x86_64.tar.gz`
+        - **Linux ARM64**: `cpdd-*-linux-aarch64.tar.gz`
+        - **macOS Universal** (Intel + Apple Silicon): `cpdd-*-darwin-universal.tar.gz`
+        - **FreeBSD x86_64**: `cpdd-*-freebsd-x86_64.tar.gz`
+        
+        ## Installation
+        
+        1. Download the appropriate archive for your platform
+        2. Extract: `tar -xzf cpdd-*.tar.gz`
+        3. Copy binaries to your PATH: `cp cpdd-*/cpdd cpdd-*/syndir /usr/local/bin/`
+        4. Install man pages: `cp cpdd-*/man/*.1 /usr/local/share/man/man1/`
+        
+        ## Verification
+        
+        Each archive includes a SHA256 checksum file. Verify with:
+        ```bash
+        sha256sum -c cpdd-*.tar.gz.sha256
+        ```
+        
+        ## What's New
+        
+        See the commit history for changes in this release.
+        EOF
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.version.outputs.VERSION }}
+        name: cpdd ${{ steps.version.outputs.VERSION }}
+        body_path: release_notes.md
+        draft: false
+        prerelease: false
+        files: |
+          artifacts/**/*.tar.gz
+          artifacts/**/*.sha256
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
