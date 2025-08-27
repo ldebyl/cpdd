@@ -122,7 +122,8 @@ static file_info_t *collect_file_info(const char *ref_dir, const options_t *opts
             }
             // Display the file that is being added
             if (opts->verbose == 3) {
-                printf("Adding reference file: %s (size: %lld bytes)\n", full_path, st.st_size);
+                // Cast off_t to long long to avoid cross-platform format specifier issues
+                printf("Adding reference file: %s (size: %lld bytes)\n", full_path, (long long)st.st_size);
             }
             new_file->path = strdup(full_path);
             new_file->size = st.st_size;
