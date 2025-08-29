@@ -1,28 +1,37 @@
 # Cross-platform Makefile for cpdd
 .POSIX:
-.SUFFIXES:
+.OBJDIR: .
 CC = cc
 CFLAGS = -std=c99 -Wall -Wextra -O2 -Iinclude -D_POSIX_C_SOURCE=200809L -Wno-deprecated-declarations -Wno-format-truncation
 
-all: cpdd syndir
-cpdd: src/cpdd/main.o src/cpdd/copy.o src/cpdd/matching.o src/cpdd/args.o src/common/terminal.o src/common/md5.o
-	$(CC) $(CFLAGS) -o $@ main.o copy.o matching.o args.o terminal.o md5.o
-syndir: main.o core.o args.o terminal.o
-	$(CC) $(CFLAGS) -o $@ main.o core.o args.o terminal.o -lm
+# Macro to compile source to object
+COMPILE = mkdir -p obj && $(CC) $(CFLAGS) -c
 
-cpdd.o: src/cpdd/main.c
-copy.o: src/cpdd/copy.c
-matching.o: src/cpdd/matching.c
-args.o: src/cpdd/args.c
-terminal.o: src/common/terminal.c
-md5.o: src/common/md5.c
-main.o: src/syndir/main.c
-core.o: src/syndir/core.c
-args.o: src/syndir/args.c
+all: cpdd syndir docs
+cpdd: obj/cpdd/cpdd.o obj/cpdd/copy.o obj/cpdd/matching.o obj/cpdd/args.o obj/common/terminal.o obj/common/md5.o
+	$(CC) $(CFLAGS) -o cpdd obj/cpdd/cpdd.o obj/cpdd/copy.o obj/cpdd/matching.o obj/cpdd/args.o obj/common/terminal.o obj/common/md5.o
+syndir: obj/syndir/syndir.o obj/syndir/core.o obj/syndir/args.o obj/common/terminal.o
+	$(CC) $(CFLAGS) -o syndir obj/syndir/syndir.o obj/syndir/core.o obj/syndir/args.o obj/common/terminal.o -lm
 
-.SUFFIXES: .c .o
-.c.o:
-	$(CC) $(CFLAGS) -c $<
+obj/cpdd/cpdd.o: src/cpdd/cpdd.c
+	mkdir -p obj/cpdd && $(CC) $(CFLAGS) -c src/cpdd/cpdd.c -o obj/cpdd/cpdd.o
+obj/cpdd/copy.o: src/cpdd/copy.c
+	mkdir -p obj/cpdd && $(CC) $(CFLAGS) -c src/cpdd/copy.c -o obj/cpdd/copy.o
+obj/cpdd/matching.o: src/cpdd/matching.c
+	mkdir -p obj/cpdd && $(CC) $(CFLAGS) -c src/cpdd/matching.c -o obj/cpdd/matching.o
+obj/cpdd/args.o: src/cpdd/args.c
+	mkdir -p obj/cpdd && $(CC) $(CFLAGS) -c src/cpdd/args.c -o obj/cpdd/args.o
+obj/common/terminal.o: src/common/terminal.c
+	mkdir -p obj/common && $(CC) $(CFLAGS) -c src/common/terminal.c -o obj/common/terminal.o
+obj/common/md5.o: src/common/md5.c
+	mkdir -p obj/common && $(CC) $(CFLAGS) -c src/common/md5.c -o obj/common/md5.o
+obj/syndir/syndir.o: src/syndir/syndir.c
+	mkdir -p obj/syndir && $(CC) $(CFLAGS) -c src/syndir/syndir.c -o obj/syndir/syndir.o
+obj/syndir/core.o: src/syndir/core.c
+	mkdir -p obj/syndir && $(CC) $(CFLAGS) -c src/syndir/core.c -o obj/syndir/core.o
+obj/syndir/args.o: src/syndir/args.c
+	mkdir -p obj/syndir && $(CC) $(CFLAGS) -c src/syndir/args.c -o obj/syndir/args.o
+
 
 clean:
 	rm -rf obj cpdd syndir docs/*.txt *.o
@@ -44,19 +53,11 @@ uninstall:
 # Generate text versions of man pages for GitHub viewing
 docs: docs/cpdd.txt docs/syndir.txt
 
-docs/%.txt: man/%.1
-	@mkdir -p docs
-	@if command -v man >/dev/null 2>&1; then \
-		MANWIDTH=80 man -P cat ./$< | col -bx > $@; \
-	elif command -v groff >/dev/null 2>&1; then \
-		groff -man -Tascii $< | col -bx > $@; \
-	elif command -v nroff >/dev/null 2>&1; then \
-		nroff -man $< | col -bx > $@; \
-	else \
-		echo "Warning: No man page formatter found. Install man, groff, or nroff to generate text documentation."; \
-		echo "Fallback: copying raw file with .txt extension"; \
-		cp $< $@; \
-	fi
+docs/cpdd.txt: man/cpdd.1
+	./scripts/man2txt.sh man/cpdd.1 docs/cpdd.txt
+
+docs/syndir.txt: man/syndir.1
+	./scripts/man2txt.sh man/syndir.1 docs/syndir.txt
 
 .PHONY: help
 help:
