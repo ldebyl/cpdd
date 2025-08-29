@@ -121,24 +121,12 @@ void print_stats_at_bottom(const char *format, ...) {
     va_list args;
     va_start(args, format);
     
-    if (terminal_supports_clear_eol()) {
-        struct winsize ws;
-        if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0 && ws.ws_row > 0) {
-            printf("\033[s");
-            printf("\033[%d;1H", ws.ws_row);
-            printf("\r");
-            vprintf(format, args);
-            printf("\033[K");
-            printf("\033[u");
-            fflush(stdout);
-        } else {
-            vprintf(format, args);
-            printf("\n");
-        }
-    } else {
-        vprintf(format, args);
-        printf("\n");
-    }
+    /* When verbose output is scrolling, bottom-line display doesn't work well.
+     * Just print stats as regular output instead of trying to maintain 
+     * bottom-line position. */
+    vprintf(format, args);
+    printf("\n");
+    fflush(stdout);
     
     va_end(args);
 }
