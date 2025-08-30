@@ -381,11 +381,9 @@ int generate_test_data(const options_t *opts)
 {
     file_entry_t *ref_files = NULL;
 
-    if (rand_seed == 0)
-    {
-        rand_seed = time(NULL);
-        srand(rand_seed);
-    }
+    /* Use the seed from options */
+    rand_seed = opts->seed;
+    srand(rand_seed);
 
     if (opts->verbose)
     {

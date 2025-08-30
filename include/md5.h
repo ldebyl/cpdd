@@ -33,14 +33,17 @@
 
 #define MD5_DIGEST_LENGTH 16
 
+/* Pre-computed MD5 of empty file */
 extern const unsigned char NULL_MD5[MD5_DIGEST_LENGTH];
 
+/* MD5 context structure */
 typedef struct {
-    uint32_t state[4];
-    uint32_t count[2];
-    unsigned char buffer[64];
+    uint32_t state[4];        /* MD5 state (A, B, C, D) */
+    uint32_t count[2];        /* Number of bits processed */
+    unsigned char buffer[64]; /* Input buffer */
 } MD5_CTX;
 
+/* MD5 computation functions */
 void MD5_Init(MD5_CTX *ctx);
 void MD5_Update(MD5_CTX *ctx, const void *data, size_t len);
 void MD5_Final(unsigned char digest[MD5_DIGEST_LENGTH], MD5_CTX *ctx);

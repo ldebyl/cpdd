@@ -1,0 +1,133 @@
+CPDD(1)                          User Commands                         CPDD(1)
+
+
+
+NAME
+       cpdd - copy files with content-based deduplication
+
+SYNOPSIS
+       cpdd [OPTIONS] SOURCE... DESTINATION
+
+DESCRIPTION
+       cpdd  is  a file copy utility that provides content-based deduplication
+       by linking to identical files in a reference directory. It performs ef-
+       ficient  three-stage matching: file size comparison, MD5 checksum veri-
+       fication, and byte-by-byte content comparison.
+
+       When a reference directory is specified, files with  identical  content
+       are linked (hard or symbolic) rather than copied, saving disk space and
+       preserving storage efficiency.
+
+OPTIONS
+       -r, --reference DIR
+              Use DIR as reference directory for content-based linking.  Files
+              in  SOURCE  that  match content in DIR will be linked instead of
+              copied. Defaults to hard links.
+
+       -L, --hard-link
+              Create hard links to reference files when content matches.  This
+              is the default when a reference directory is specified.
+
+       -s, --symbolic-link
+              Create symbolic links to reference files when content matches.
+
+       -R, --recursive
+              Copy directories recursively.
+
+       -n, --no-clobber
+              Never overwrite existing files.
+
+       -i, --interactive
+              Prompt before overwriting existing files.
+
+       -p     Preserve  file  attributes (equivalent to --preserve=mode,owner-
+              ship,timestamps).
+
+       --preserve[=ATTR_LIST]
+              Preserve specified file attributes. If no  ATTR_LIST  is  given,
+              preserves mode, ownership, and timestamps. Available attributes:
+
+              o   mode - file permissions
+
+              o   ownership - user and group ownership
+
+              o   timestamps - access and modification times
+
+              o   all - all of the above
+
+       --stats
+              Display statistics after the copy operation, including number of
+              files copied, linked, and skipped.
+
+       -h, --human-readable
+              Show file sizes in human-readable format (K, M, G) in statistics
+              and verbose output.
+
+       -v, --verbose
+              Verbose  output showing files being processed and their disposi-
+              tion.
+
+       --help Display help message and exit.
+
+EXAMPLES
+       Basic file copy:
+              cpdd file1.txt file2.txt /dest/
+
+       Recursive directory copy:
+              cpdd -R src1/ src2/ /dest/
+
+       Copy with hard link deduplication:
+              cpdd -r /reference/ -R -v source/ /dest/
+
+       Copy with symbolic link deduplication:
+              cpdd -r /reference/ -s --stats source/ /dest/
+
+       Interactive copy preserving attributes:
+              cpdd -i -p -R src/ dest/
+
+FILE MATCHING ALGORITHM
+       cpdd uses a three-stage matching process for efficient deduplication:
+
+       1.  Size comparison - Files must have identical size to  be  considered
+           for matching.
+
+       2.  MD5  checksum  - Only calculated for files with non-unique sizes in
+           the reference directory, providing an efficient pre-filter.
+
+       3.  Byte-by-byte comparison - Final  verification  ensures  content  is
+           truly identical before linking.
+
+           This approach minimizes expensive I/O operations while guaranteeing
+           correctness.
+
+EXIT STATUS
+       cpdd exits with status 0 on success, 1 on error.
+
+FILES
+       No configuration files are used.
+
+NOTES
+       Hard links can only be created between files on the same filesystem. If
+       hard linking fails, cpdd will fall back to copying the file normally.
+
+       Symbolic  links  contain  the  path  to  the  target  file and can span
+       filesystems, but may break if  the  reference  directory  is  moved  or
+       deleted.
+
+BUGS
+       Report bugs at: https://github.com/32kb-net/cpdd/issues
+
+AUTHOR
+       Written by Lee de Byl <lee@32kb.net>.
+
+COPYRIGHT
+       Copyright (C) 2025 Lee de Byl. Licensed under the MIT License.  This is
+       free software: you are free to change and redistribute it.  There is NO
+       WARRANTY, to the extent permitted by law.
+
+SEE ALSO
+       cp(1), rsync(1), ln(1), find(1), md5sum(1)
+
+
+
+cpdd                                 2025                              CPDD(1)

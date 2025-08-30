@@ -25,6 +25,7 @@
 #include "cpdd.h"
 #include <stdarg.h>
 #include <sys/ioctl.h>
+#include <time.h>
 
 static int terminal_capability_checked = 0;
 static int supports_clear_eol = 0;
@@ -75,9 +76,11 @@ void print_status_update(const char *format, ...) {
     va_start(args, format);
     
     if (terminal_supports_clear_eol()) {
-        printf("\r");
+        /* Use reverse video for status line to make it stand out */
+        printf("\r\033[7m");  /* \033[7m = reverse video */
         vprintf(format, args);
-        printf("\033[K");
+        printf("\033[0m");    /* \033[0m = reset attributes */
+        printf("\033[K");     /* Clear to end of line */
         fflush(stdout);
     } else {
         vprintf(format, args);
@@ -112,7 +115,7 @@ void clear_status_line(void) {
 void fclear_status_line(FILE *stream) {
     int fd = fileno(stream);
     if (terminal_supports_clear_eol_for_fd(fd)) {
-        fprintf(stream, "\r\033[K");
+        fprintf(stream, "\r\033[0m\033[K");  /* Reset attributes + clear line */
         fflush(stream);
     }
 }
@@ -121,11 +124,10 @@ void print_stats_at_bottom(const char *format, ...) {
     va_list args;
     va_start(args, format);
     
-    /* When verbose output is scrolling, bottom-line display doesn't work well.
-     * Just print stats as regular output instead of trying to maintain 
-     * bottom-line position. */
+    /* For verbose mode, just print as a regular highlighted line */
+    printf("\033[7m[PROGRESS] ");  /* Reverse video + label */
     vprintf(format, args);
-    printf("\n");
+    printf("\033[0m\n");  /* Reset + newline */
     fflush(stdout);
     
     va_end(args);
