@@ -147,19 +147,19 @@ static file_info_t *collect_file_info(const char *ref_dir, const options_t *opts
 }
 
 /*
- * Sorted array structure for efficient size lookups
+ * Sorted array structure for file info objects
  */
 typedef struct {
-    off_t *sizes;
+    file_info_t **files;
     int count;
     int capacity;
-} sorted_sizes_t;
+} sorted_file_info_t;
 
-static sorted_sizes_t *sorted_sizes_init(int initial_capacity) {
-    sorted_sizes_t *list = malloc(sizeof(sorted_sizes_t));
+static sorted_file_info_t *sorted_file_info_init(int initial_capacity) {
+    sorted_file_info_t *list = malloc(sizeof(sorted_file_info_t));
     if (!list) return NULL;
-    list->sizes = malloc(sizeof(off_t) * initial_capacity);
-    if (!list->sizes) {
+    list->files = malloc(sizeof(file_info_t *) * initial_capacity);
+    if (!list->files) {
         free(list);
         return NULL;
     }
@@ -168,41 +168,49 @@ static sorted_sizes_t *sorted_sizes_init(int initial_capacity) {
     return list;
 }
 
-static int compare_off_t(const void *a, const void *b) {
-    off_t size_a = *(const off_t *)a;
-    off_t size_b = *(const off_t *)b;
-    return (size_a > size_b) - (size_a < size_b);
+static int compare_file_info_size(const void *a, const void *b) {
+    file_info_t *file_a = *(file_info_t **)a;
+    file_info_t *file_b = *(file_info_t **)b;
+    return (file_a->size > file_b->size) - (file_a->size < file_b->size);
 }
 
-static int sorted_sizes_contains(sorted_sizes_t *list, off_t size) {
+static int sorted_file_info_contains_size(sorted_file_info_t *list, off_t size) {
     if (list->count == 0) return 0;
-    return bsearch(&size, list->sizes, list->count, sizeof(off_t), compare_off_t) != NULL;
+    
+    /* Binary search for size */
+    int left = 0, right = list->count - 1;
+    while (left <= right) {
+        int mid = left + (right - left) / 2;
+        if (list->files[mid]->size == size) {
+            return 1;
+        } else if (list->files[mid]->size < size) {
+            left = mid + 1;
+        } else {
+            right = mid - 1;
+        }
+    }
+    return 0;
 }
 
-static void sorted_sizes_add(sorted_sizes_t *list, off_t size) {
-    /* Don't add if already exists */
-    if (sorted_sizes_contains(list, size)) {
-        return;
-    }
-    
+static void sorted_file_info_add(sorted_file_info_t *list, file_info_t *file) {
     /* Resize if needed */
     if (list->count >= list->capacity) {
         list->capacity *= 2;
-        off_t *new_sizes = realloc(list->sizes, sizeof(off_t) * list->capacity);
-        if (!new_sizes) {
+        file_info_t **new_files = realloc(list->files, sizeof(file_info_t *) * list->capacity);
+        if (!new_files) {
             return; /* Failed to resize - keep original array */
         }
-        list->sizes = new_sizes;
+        list->files = new_files;
     }
     
     /* Add and re-sort */
-    list->sizes[list->count++] = size;
-    qsort(list->sizes, list->count, sizeof(off_t), compare_off_t);
+    list->files[list->count++] = file;
+    qsort(list->files, list->count, sizeof(file_info_t *), compare_file_info_size);
 }
 
-static void sorted_sizes_free(sorted_sizes_t *list) {
+static void sorted_file_info_free(sorted_file_info_t *list) {
     if (list) {
-        free(list->sizes);
+        free(list->files);
         free(list);
     }
 }
@@ -217,8 +225,8 @@ static void sorted_sizes_free(sorted_sizes_t *list) {
 file_info_t *scan_reference_directory(const options_t *opts) {
     file_info_t *head;
     file_info_t *current;
-    sorted_sizes_t *seen_sizes;
-    sorted_sizes_t *duplicate_sizes;
+    sorted_file_info_t *seen_files;
+    sorted_file_info_t *duplicate_files;
     
     /* First pass: collect all files with sizes only.
      * Note that although ref_dir is included in opts, collect_file_info is called
@@ -231,25 +239,25 @@ file_info_t *scan_reference_directory(const options_t *opts) {
         return NULL;
     }
     
-    /* Initialize sorted arrays for tracking sizes */
-    seen_sizes = sorted_sizes_init(total_files);
-    duplicate_sizes = sorted_sizes_init(total_files / 4); /* estimate fewer duplicates */
-    if (!seen_sizes || !duplicate_sizes) {
-        sorted_sizes_free(seen_sizes);
-        sorted_sizes_free(duplicate_sizes);
+    /* Initialize sorted arrays for tracking file info objects */
+    seen_files = sorted_file_info_init(total_files);
+    duplicate_files = sorted_file_info_init(total_files / 4); /* estimate fewer duplicates */
+    if (!seen_files || !duplicate_files) {
+        sorted_file_info_free(seen_files);
+        sorted_file_info_free(duplicate_files);
         free_file_list(head);
         return NULL;
     }
     
-    /* Build lists of seen and duplicate sizes */
+    /* Build lists of seen and duplicate file info objects */
     current = head;
     while (current) {
-        if (sorted_sizes_contains(seen_sizes, current->size)) {
+        if (sorted_file_info_contains_size(seen_files, current->size)) {
             /* Already seen this size - it's a duplicate */
-            sorted_sizes_add(duplicate_sizes, current->size);
+            sorted_file_info_add(duplicate_files, current);
         } else {
             /* First time seeing this size */
-            sorted_sizes_add(seen_sizes, current->size);
+            sorted_file_info_add(seen_files, current);
         }
         current = current->next;
     }
@@ -257,13 +265,13 @@ file_info_t *scan_reference_directory(const options_t *opts) {
     /* Second pass: mark files that need MD5 using binary search */
     current = head;
     while (current) {
-        current->needs_md5 = sorted_sizes_contains(duplicate_sizes, current->size);
+        current->needs_md5 = sorted_file_info_contains_size(duplicate_files, current->size);
         current = current->next;
     }
     
     /* Cleanup sorted arrays */
-    sorted_sizes_free(seen_sizes);
-    sorted_sizes_free(duplicate_sizes);
+    sorted_file_info_free(seen_files);
+    sorted_file_info_free(duplicate_files);
     
     return head;
 }

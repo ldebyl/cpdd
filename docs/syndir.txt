@@ -51,8 +51,12 @@ OPTIONS
               Scale all file sizes by this factor (default: 1.0). Use values >
               1.0 for larger files, < 1.0 for smaller files.
 
+       --seed SEED
+              Sets  the  seed for random generation. Set this for reproducible
+              generation.
+
        -v, --verbose
-              Show  verbose  output  during  generation, including files being
+              Show verbose output during  generation,  including  files  being
               created and their sizes.
 
        -h, --help
@@ -81,7 +85,7 @@ EXAMPLES
               du -sh /tmp/ref /tmp/src /tmp/dest
 
 FILE SIZE DISTRIBUTION
-       syndir  generates  files  with  realistic size distributions using per-
+       syndir generates files with realistic  size  distributions  using  per-
        centile-based parameters:
 
        o   50% of files are smaller than --size-p50
@@ -92,7 +96,7 @@ FILE SIZE DISTRIBUTION
 
        o   The --size-scale factor multiplies all sizes uniformly
 
-           This approach creates natural distributions similar  to  real-world
+           This  approach  creates natural distributions similar to real-world
            file collections.
 
 DUPLICATION STRATEGY
@@ -106,7 +110,7 @@ DUPLICATION STRATEGY
 
        4.  This creates perfect deduplication candidates for testing
 
-           Non-duplicate  files contain unique random content generated from a
+           Non-duplicate files contain unique random content generated from  a
            pseudorandom source.
 
 EXIT STATUS
@@ -120,10 +124,10 @@ NOTES
 
            rm -rf /tmp/ref /tmp/src /tmp/dest
 
-       The size percentile parameters must be in  ascending  order:  p50   p95
+       The  size  percentile  parameters  must be in ascending order: p50  p95
        max.
 
-       For  testing  scenarios, typical duplication percentages range from 20%
+       For testing scenarios, typical duplication percentages range  from  20%
        (conservative) to 80% (aggressive deduplication scenarios).
 
 EXAMPLES DIRECTORY
