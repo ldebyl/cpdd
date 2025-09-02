@@ -124,10 +124,24 @@ void print_stats_at_bottom(const char *format, ...) {
     va_list args;
     va_start(args, format);
     
-    /* For verbose mode, just print as a regular highlighted line */
-    printf("\033[7m[PROGRESS] ");  /* Reverse video + label */
+    if (!terminal_supports_clear_eol()) {
+        /* Fallback for non-terminal output */
+        printf("[STATS] ");
+        vprintf(format, args);
+        printf("\n");
+        fflush(stdout);
+        va_end(args);
+        return;
+    }
+    
+    /* Reserve bottom line for stats using ANSI escapes */
+    printf("\033[s");          /* Save cursor position */
+    printf("\033[999;1H");     /* Move to bottom line */
+    printf("\033[2K");         /* Clear entire line */
+    printf("\033[7m[STATS] "); /* Reverse video + label */
     vprintf(format, args);
-    printf("\033[0m\n");  /* Reset + newline */
+    printf("\033[0m");         /* Reset attributes */
+    printf("\033[u");          /* Restore cursor position */
     fflush(stdout);
     
     va_end(args);
