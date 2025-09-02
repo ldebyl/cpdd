@@ -89,7 +89,6 @@ typedef struct {
 /* File matching and deduplication */
 sorted_file_info_t *scan_reference_directory(const options_t *opts);
 file_info_t *find_matching_file(sorted_file_info_t *ref_files, const char *src_file, const options_t *opts);
-int calculate_md5(const char *filename, unsigned char *digest);
 int files_identical(const char *file1, const char *file2);
 int files_match(file_info_t *ref_file, file_info_t *src_file);
 

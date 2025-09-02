@@ -47,4 +47,7 @@ typedef struct {
 void MD5_Init(MD5_CTX *ctx);
 void MD5_Update(MD5_CTX *ctx, const void *data, size_t len);
 void MD5_Final(unsigned char digest[MD5_DIGEST_LENGTH], MD5_CTX *ctx);
+
+/* High-level file MD5 computation */
+int md5sum(const char *filename, unsigned char digest[MD5_DIGEST_LENGTH]);
 #endif

@@ -26,29 +26,7 @@
 #include "cpdd.h"
 #include "md5.h"
 
-int calculate_md5(const char *filename, unsigned char *digest) {
-    FILE *file;
-    MD5_CTX ctx;
-    unsigned char buffer[BUFFER_SIZE];
-    size_t bytes_read;
-    
-    file = fopen(filename, "rb");
-    if (!file) {
-        return -1;
-    }
-    
-    MD5_Init(&ctx);
-    
-    while ((bytes_read = fread(buffer, 1, BUFFER_SIZE, file)) > 0) {
-        MD5_Update(&ctx, buffer, bytes_read);
-    }
-    
-    MD5_Final(digest, &ctx);
-    fclose(file);
-    
-    return 0;
-}
-
+/* Determines if two files are bytewise identical. */
 int files_identical(const char *file1, const char *file2) {
     FILE *f1, *f2;
     unsigned char buffer1[BUFFER_SIZE], buffer2[BUFFER_SIZE];
@@ -80,6 +58,14 @@ int files_identical(const char *file1, const char *file2) {
     return result;
 }
 
+/* Efficiently determines if two files are identical.
+ * 1. Checks if sizes match (should always be true when called)
+ * 2. If both have MD5, compare hashes first, then byte compare if they match
+ * 3. If neither needs MD5 (reference file size is unique), just do byte compare
+ * 4. If at least one needs MD5, read both files in chunks, updating MD5 as needed,
+ *    and comparing bytes until a mismatch is found or EOF is reached.
+ * 5. Finalize MD5 for files that need it for futuer comparisons.
+ */
 int files_match(file_info_t *ref_file, file_info_t *src_file) {
     /* Files should always have the same size when this function is called */
     if (ref_file->size != src_file->size) {

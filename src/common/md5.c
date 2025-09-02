@@ -214,3 +214,26 @@ void MD5_Final(unsigned char digest[MD5_DIGEST_LENGTH], MD5_CTX *ctx) {
     encode(digest, ctx->state, 16);
     memset(ctx, 0, sizeof(*ctx));
 }
+
+int md5sum(const char *filename, unsigned char digest[MD5_DIGEST_LENGTH]) {
+    FILE *file;
+    MD5_CTX ctx;
+    unsigned char buffer[8192];
+    size_t bytes_read;
+    
+    file = fopen(filename, "rb");
+    if (!file) {
+        return -1;
+    }
+    
+    MD5_Init(&ctx);
+    
+    while ((bytes_read = fread(buffer, 1, sizeof(buffer), file)) > 0) {
+        MD5_Update(&ctx, buffer, bytes_read);
+    }
+    
+    MD5_Final(digest, &ctx);
+    fclose(file);
+    
+    return 0;
+}
