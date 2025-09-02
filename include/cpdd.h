@@ -50,7 +50,8 @@ typedef struct {
     char **sources;         /* Source directories/files */
     int source_count;       /* Number of sources */
     char *dest_dir;         /* Destination directory */
-    char *ref_dir;          /* Reference directory for deduplication */
+    char **ref_dirs;        /* Reference directories for deduplication */
+    int ref_dir_count;      /* Number of reference directories */
     link_type_t link_type;  /* Linking strategy */
     int verbose;            /* Verbose output */
     int recursive;          /* Recursive directory traversal */

@@ -81,6 +81,12 @@ int files_identical(const char *file1, const char *file2) {
 }
 
 int files_match(file_info_t *ref_file, file_info_t *src_file) {
+    /* Files should always have the same size when this function is called */
+    if (ref_file->size != src_file->size) {
+        fprintf(stderr, "Internal error: files_match called with different sized files\n");
+        return 0;
+    }
+    
     /* If both files have MD5, compare hashes first */
     if (ref_file->has_md5 && src_file->has_md5) {
         if (memcmp(ref_file->md5, src_file->md5, MD5_DIGEST_LENGTH) != 0) {
@@ -155,17 +161,16 @@ int files_match(file_info_t *ref_file, file_info_t *src_file) {
 /*
  * Helper function to recursively collect file paths and sizes portably across operating systems.
  */
-static file_info_t *collect_file_info(const char *ref_dir, const options_t *opts, int *count) {
+static void collect_file_info(const char *ref_dir, const options_t *opts, int *count, file_info_t **head) {
     DIR *dir;
     struct dirent *entry;
     struct stat st;
-    file_info_t *head = NULL;
     char full_path[MAX_PATH];
 
 
     dir = opendir(ref_dir);
     if (!dir) {
-        return NULL;
+        return;
     }
     
     while ((entry = readdir(dir)) != NULL) {
@@ -180,15 +185,7 @@ static file_info_t *collect_file_info(const char *ref_dir, const options_t *opts
         }
         
         if (S_ISDIR(st.st_mode)) {
-            file_info_t *subdir_files = collect_file_info(full_path, opts, count);
-            if (subdir_files) {
-                file_info_t *subdir_tail = subdir_files;
-                while (subdir_tail->next) {
-                    subdir_tail = subdir_tail->next;
-                }
-                subdir_tail->next = head;
-                head = subdir_files;
-            }
+            collect_file_info(full_path, opts, count, head);
         } else if (S_ISREG(st.st_mode)) {
             file_info_t *new_file = malloc(sizeof(file_info_t));
             if (!new_file) {
@@ -208,8 +205,8 @@ static file_info_t *collect_file_info(const char *ref_dir, const options_t *opts
             new_file->needs_md5 = 0; /* Will be set later */
             new_file->has_md5 = 0;   /* No MD5 calculated yet */
             
-            new_file->next = head;
-            head = new_file;
+            new_file->next = *head;
+            *head = new_file;
             (*count)++;
         }
     }
@@ -219,7 +216,6 @@ static file_info_t *collect_file_info(const char *ref_dir, const options_t *opts
         print_status_update("\rScanned %d reference files in %s", *count, ref_dir);
         fflush(stdout);
     }
-    return head;
 }
 
 /*
@@ -257,9 +253,8 @@ static void sorted_file_info_add(sorted_file_info_t *list, file_info_t *file) {
         list->files = new_files;
     }
     
-    /* Add and re-sort */
+    /* Just add - don't sort yet */
     list->files[list->count++] = file;
-    qsort(list->files, list->count, sizeof(file_info_t *), compare_file_info_size);
 }
 
 
@@ -271,17 +266,17 @@ static void sorted_file_info_add(sorted_file_info_t *list, file_info_t *file) {
  * Returns sorted_file_info_t structure with array of file_info_t pointers, or NULL on error.
  */
 sorted_file_info_t *scan_reference_directory(const options_t *opts) {
-    file_info_t *head;
+    file_info_t *head = NULL;
     file_info_t *current;
     sorted_file_info_t *sorted_files;
     
-    /* First pass: collect all files with sizes only.
-     * Note that although ref_dir is included in opts, collect_file_info is called
-     * recursively with different ref_dirs, hence it is passed as a separate parameter.
-     * This allows opts to be kept constant.
-     */
+    /* First pass: collect all files from all reference directories */
     int total_files = 0;
-    head = collect_file_info(opts->ref_dir, opts, &total_files);
+    
+    for (int i = 0; i < opts->ref_dir_count; i++) {
+        collect_file_info(opts->ref_dirs[i], opts, &total_files, &head);
+    }
+    
     if (!head) {
         return NULL;
     }
@@ -293,7 +288,7 @@ sorted_file_info_t *scan_reference_directory(const options_t *opts) {
         return NULL;
     }
     
-    /* Add all files to sorted array */
+    /* Add all files to array */
     current = head;
     while (current) {
         file_info_t *next = current->next;
@@ -302,6 +297,9 @@ sorted_file_info_t *scan_reference_directory(const options_t *opts) {
         current = next;
     }
     /* Don't free anything - the file_info_t objects are now owned by sorted_files */
+
+    /* Sort once after all files are added */
+    qsort(sorted_files->files, sorted_files->count, sizeof(file_info_t *), compare_file_info_size);
 
     /* Mark files that need MD5 by checking for duplicate sizes in sorted array */
     for (int i = 0; i < sorted_files->count; i++) {

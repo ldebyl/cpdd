@@ -66,7 +66,7 @@ void cleanup_incomplete_file(void) {
     }
 }
 
-/* Determins whether a destination file should be overwritten,
+/* Determines whether a destination file should be overwritten,
  * by firstly determining if the destination exists, whether the
  * user has specified --no-clobber, and optionally interactively
  * asking */
@@ -95,7 +95,7 @@ int should_overwrite(const char *dest_path, const options_t *opts) {
     return 1;
 }
 
-/* Given a source a destination, propogates attributes between them */
+/* Given a source and destination, propagates attributes between them */
 int preserve_file_attributes(const char *src, const char *dest, const preserve_t *preserve) {
     struct stat src_st;
     struct utimbuf times;
@@ -457,22 +457,22 @@ int copy_directory(const options_t *opts, stats_t *stats) {
         }
     }
     
-    /* Scan reference directory once */
-    if (opts->ref_dir) {
+    /* Scan reference directories once */
+    if (opts->ref_dir_count > 0) {
         if (opts->verbose) {
-            printf("Scanning reference directory %s...\n", opts->ref_dir);
+            printf("Scanning %d reference directories...\n", opts->ref_dir_count);
         }
         ref_files = scan_reference_directory(opts);
         if (!ref_files) {
             if (opts->verbose) {
-                printf("Warning: No files found in reference directory\n");
+                printf("Warning: No files found in reference directories\n");
             }
         } else {
             // Get the number of reference files from the sorted structure
             int ref_file_count = ref_files->count;
 
             if (opts->verbose) {
-                printf("Found %d reference files in %s\n", ref_file_count, opts->ref_dir);
+                printf("Found %d reference files across all directories\n", ref_file_count);
             }
         }
     }

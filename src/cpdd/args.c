@@ -65,7 +65,7 @@ void print_usage(const char *program_name) {
     printf("Usage: %s [OPTIONS] SOURCE... DESTINATION\n", program_name);
     printf("\nCopy files from SOURCE(s) to DESTINATION with optional reference directory linking.\n");
     printf("\nOptions:\n");
-    printf("  -r, --reference DIR   Reference directory for content-based linking (defaults to hard links)\n");
+    printf("  -r, --reference DIR   Reference directory for content-based linking (can be used multiple times)\n");
     printf("  -L, --hard-link      Create hard links to reference files when content matches (default with -r)\n");
     printf("  -s, --symbolic-link  Create symbolic links to reference files when content matches\n");
     printf("  -R, --recursive      Copy directories recursively\n");
@@ -87,6 +87,7 @@ void print_usage(const char *program_name) {
     printf("  %s file1.txt file2.txt dest/           # Copy multiple files\n", program_name);
     printf("  %s -R src1/ src2/ dest/                # Copy multiple directories\n", program_name);
     printf("  %s -r ref *.txt dest/                  # Copy matching files with hard links\n", program_name);
+    printf("  %s -r ref1 -r ref2 -s src/ dest/       # Multiple reference directories with symbolic links\n", program_name);
     printf("  %s -r ref -s -R src1/ src2/ dest/      # Multiple sources with symbolic links\n", program_name);
     printf("  %s -vv -r ref src/ dest/               # Copy with detailed verbosity\n", program_name);
     printf("\nFile matching priority:\n");
@@ -117,7 +118,8 @@ int parse_args(int argc, char *argv[], options_t *opts) {
     opts->sources = NULL;
     opts->source_count = 0;
     opts->dest_dir = NULL;
-    opts->ref_dir = NULL;
+    opts->ref_dirs = NULL;
+    opts->ref_dir_count = 0;
     opts->link_type = LINK_NONE;
     opts->verbose = 0;
     opts->recursive = 0;
@@ -132,9 +134,17 @@ int parse_args(int argc, char *argv[], options_t *opts) {
     
     while ((opt = getopt_long(argc, argv, "r:LsRnipvhSH", long_options, &option_index)) != -1) {
         switch (opt) {
-            case 'r':
-                opts->ref_dir = optarg;
+            case 'r': {
+                opts->ref_dir_count++;
+                char **new_ref_dirs = realloc(opts->ref_dirs, opts->ref_dir_count * sizeof(char *));
+                if (!new_ref_dirs) {
+                    fprintf(stderr, "Error: Memory allocation failed for reference directories\n");
+                    return -1;
+                }
+                opts->ref_dirs = new_ref_dirs;
+                opts->ref_dirs[opts->ref_dir_count - 1] = optarg;
                 break;
+            }
             case 'L':
                 if (opts->link_type != LINK_NONE) {
                     fprintf(stderr, "Error: Cannot specify both hard and symbolic links\n");
@@ -213,11 +223,11 @@ int parse_args(int argc, char *argv[], options_t *opts) {
     opts->dest_dir = argv[argc - 1];
     
     /* Set hard links as default when reference directory is specified */
-    if (opts->ref_dir && opts->link_type == LINK_NONE) {
+    if (opts->ref_dir_count > 0 && opts->link_type == LINK_NONE) {
         opts->link_type = LINK_HARD;
     }
     
-    if (opts->link_type != LINK_NONE && !opts->ref_dir) {
+    if (opts->link_type != LINK_NONE && opts->ref_dir_count == 0) {
         fprintf(stderr, "Error: Link type specified but no reference directory provided\n");
         return -1;
     }
