@@ -78,11 +78,19 @@ int parse_args(int argc, char *argv[], options_t *opts);
 int copy_directory(const options_t *opts, stats_t *stats);
 int create_directory_structure(const char *src_path, const char *dest_path);
 
+/* Sorted file info structure */
+typedef struct {
+    file_info_t **files;
+    int count;
+    int capacity;
+} sorted_file_info_t;
+
 /* File matching and deduplication */
-file_info_t *scan_reference_directory(const options_t *opts);
-file_info_t *find_matching_file(file_info_t *ref_files, const char *src_file, const options_t *opts);
+sorted_file_info_t *scan_reference_directory(const options_t *opts);
+file_info_t *find_matching_file(sorted_file_info_t *ref_files, const char *src_file, const options_t *opts);
 int calculate_md5(const char *filename, unsigned char *digest);
 int files_identical(const char *file1, const char *file2);
+int files_match(file_info_t *ref_file, file_info_t *src_file);
 
 /* File operations */
 int copy_or_link_file(const char *src, const char *dest, const char *ref, const options_t *opts, stats_t *stats);
@@ -95,6 +103,7 @@ void format_bytes(off_t bytes, int human_readable, char *buffer, size_t buffer_s
 void format_stats_line(const stats_t *stats, int human_readable, char *buffer, size_t buffer_size);
 void print_statistics(const stats_t *stats, int human_readable);
 void free_file_list(file_info_t *list);
+void free_sorted_file_info(sorted_file_info_t *sorted_files);
 void print_usage(const char *program_name);
 
 /* Terminal output and status display */

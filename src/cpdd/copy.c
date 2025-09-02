@@ -333,7 +333,7 @@ int copy_or_link_file(const char *src, const char *dest, const char *ref, const 
 }
 
 static int copy_directory_recursive(const char *src_path, const char *dest_path, 
-                                   file_info_t *ref_files, const options_t *opts, stats_t *stats) {
+                                   sorted_file_info_t *ref_files, const options_t *opts, stats_t *stats) {
     DIR *src_dir;
     struct dirent *entry;
     struct stat st;
@@ -438,7 +438,7 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
 
 int copy_directory(const options_t *opts, stats_t *stats) {
     struct stat dest_st;
-    file_info_t *ref_files = NULL;
+    sorted_file_info_t *ref_files = NULL;
     int overall_result = 0;
     int dest_is_dir = 0;
     
@@ -468,13 +468,8 @@ int copy_directory(const options_t *opts, stats_t *stats) {
                 printf("Warning: No files found in reference directory\n");
             }
         } else {
-            // Count the number of reference files
-            int ref_file_count = 0;
-            file_info_t *current = ref_files;
-            while (current) {
-                ref_file_count++;
-                current = current->next;
-            }
+            // Get the number of reference files from the sorted structure
+            int ref_file_count = ref_files->count;
 
             if (opts->verbose) {
                 printf("Found %d reference files in %s\n", ref_file_count, opts->ref_dir);
@@ -566,7 +561,7 @@ int copy_directory(const options_t *opts, stats_t *stats) {
     }
     
     if (ref_files) {
-        free_file_list(ref_files);
+        free_sorted_file_info(ref_files);
     }
     
     return overall_result;

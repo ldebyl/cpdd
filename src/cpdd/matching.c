@@ -80,6 +80,78 @@ int files_identical(const char *file1, const char *file2) {
     return result;
 }
 
+int files_match(file_info_t *ref_file, file_info_t *src_file) {
+    /* If both files have MD5, compare hashes first */
+    if (ref_file->has_md5 && src_file->has_md5) {
+        if (memcmp(ref_file->md5, src_file->md5, MD5_DIGEST_LENGTH) != 0) {
+            return 0;
+        }
+        /* MD5 matches, do byte comparison to be certain */
+        return files_identical(ref_file->path, src_file->path);
+    }
+    
+    /* If neither file needs MD5 (both unique sizes), just do byte comparison */
+    if (!ref_file->needs_md5 && !src_file->needs_md5) {
+        return files_identical(ref_file->path, src_file->path);
+    }
+    
+    /* At least one file needs MD5 calculation - do it while comparing bytes */
+    FILE *ref_fp = fopen(ref_file->path, "rb");
+    FILE *src_fp = fopen(src_file->path, "rb");
+    if (!ref_fp || !src_fp) {
+        if (ref_fp) fclose(ref_fp);
+        if (src_fp) fclose(src_fp);
+        return 0;
+    }
+    
+    MD5_CTX ref_ctx, src_ctx;
+    int calc_ref_md5 = ref_file->needs_md5 && !ref_file->has_md5;
+    int calc_src_md5 = src_file->needs_md5 && !src_file->has_md5;
+    
+    if (calc_ref_md5) MD5_Init(&ref_ctx);
+    if (calc_src_md5) MD5_Init(&src_ctx);
+    
+    unsigned char ref_buffer[BUFFER_SIZE], src_buffer[BUFFER_SIZE];
+    size_t ref_bytes, src_bytes;
+    int files_match = 1;
+    
+    do {
+        ref_bytes = fread(ref_buffer, 1, BUFFER_SIZE, ref_fp);
+        src_bytes = fread(src_buffer, 1, BUFFER_SIZE, src_fp);
+        
+        /* Update MD5 for files that need it */
+        if (calc_ref_md5 && ref_bytes > 0) {
+            MD5_Update(&ref_ctx, ref_buffer, ref_bytes);
+        }
+        if (calc_src_md5 && src_bytes > 0) {
+            MD5_Update(&src_ctx, src_buffer, src_bytes);
+        }
+        
+        /* Compare bytes, until a mismatch has been found (then just generate MD5) */
+        if (files_match) {
+            if (ref_bytes != src_bytes || memcmp(ref_buffer, src_buffer, ref_bytes) != 0) {
+                files_match = 0;
+                // Don't break here - continue to read to end for MD5 calculation
+            }
+        }
+    } while (ref_bytes > 0);
+    
+    /* Finalize MD5 for files that needed it */
+    if (calc_ref_md5) {
+        MD5_Final(ref_file->md5, &ref_ctx);
+        ref_file->has_md5 = 1;
+    }
+    if (calc_src_md5) {
+        MD5_Final(src_file->md5, &src_ctx);
+        src_file->has_md5 = 1;
+    }
+    
+    fclose(ref_fp);
+    fclose(src_fp);
+    
+    return files_match;
+}
+
 /*
  * Helper function to recursively collect file paths and sizes portably across operating systems.
  */
@@ -89,6 +161,8 @@ static file_info_t *collect_file_info(const char *ref_dir, const options_t *opts
     struct stat st;
     file_info_t *head = NULL;
     char full_path[MAX_PATH];
+
+
     dir = opendir(ref_dir);
     if (!dir) {
         return NULL;
@@ -125,8 +199,10 @@ static file_info_t *collect_file_info(const char *ref_dir, const options_t *opts
                 // Cast off_t to long long to avoid cross-platform format specifier issues
                 printf("Adding reference file: %s (size: %lld bytes)\n", full_path, (long long)st.st_size);
             }
+
             new_file->path = strdup(full_path);
             new_file->size = st.st_size;
+
             /* MD5 will be calculated lazily during comparison */
             memset(new_file->md5, 0, MD5_DIGEST_LENGTH);
             new_file->needs_md5 = 0; /* Will be set later */
@@ -147,13 +223,8 @@ static file_info_t *collect_file_info(const char *ref_dir, const options_t *opts
 }
 
 /*
- * Sorted array structure for file info objects
+ * Sorted array functions for file info objects
  */
-typedef struct {
-    file_info_t **files;
-    int count;
-    int capacity;
-} sorted_file_info_t;
 
 static sorted_file_info_t *sorted_file_info_init(int initial_capacity) {
     sorted_file_info_t *list = malloc(sizeof(sorted_file_info_t));
@@ -174,23 +245,6 @@ static int compare_file_info_size(const void *a, const void *b) {
     return (file_a->size > file_b->size) - (file_a->size < file_b->size);
 }
 
-static int sorted_file_info_contains_size(sorted_file_info_t *list, off_t size) {
-    if (list->count == 0) return 0;
-    
-    /* Binary search for size */
-    int left = 0, right = list->count - 1;
-    while (left <= right) {
-        int mid = left + (right - left) / 2;
-        if (list->files[mid]->size == size) {
-            return 1;
-        } else if (list->files[mid]->size < size) {
-            left = mid + 1;
-        } else {
-            right = mid - 1;
-        }
-    }
-    return 0;
-}
 
 static void sorted_file_info_add(sorted_file_info_t *list, file_info_t *file) {
     /* Resize if needed */
@@ -208,25 +262,18 @@ static void sorted_file_info_add(sorted_file_info_t *list, file_info_t *file) {
     qsort(list->files, list->count, sizeof(file_info_t *), compare_file_info_size);
 }
 
-static void sorted_file_info_free(sorted_file_info_t *list) {
-    if (list) {
-        free(list->files);
-        free(list);
-    }
-}
 
 /*
- * Recursively scan reference directory and build linked list of file metadata.
+ * Recursively scan reference directory and build sorted array of file metadata.
  * Uses lazy MD5 calculation optimization: first pass collects file sizes and marks
  * files that need MD5 (those with duplicate sizes), but doesn't calculate MD5 yet.
  * MD5 is calculated lazily during the first comparison attempt.
- * Returns linked list of file_info_t structures, or NULL on error.
+ * Returns sorted_file_info_t structure with array of file_info_t pointers, or NULL on error.
  */
-file_info_t *scan_reference_directory(const options_t *opts) {
+sorted_file_info_t *scan_reference_directory(const options_t *opts) {
     file_info_t *head;
     file_info_t *current;
-    sorted_file_info_t *seen_files;
-    sorted_file_info_t *duplicate_files;
+    sorted_file_info_t *sorted_files;
     
     /* First pass: collect all files with sizes only.
      * Note that although ref_dir is included in opts, collect_file_info is called
@@ -239,103 +286,95 @@ file_info_t *scan_reference_directory(const options_t *opts) {
         return NULL;
     }
     
-    /* Initialize sorted arrays for tracking file info objects */
-    seen_files = sorted_file_info_init(total_files);
-    duplicate_files = sorted_file_info_init(total_files / 4); /* estimate fewer duplicates */
-    if (!seen_files || !duplicate_files) {
-        sorted_file_info_free(seen_files);
-        sorted_file_info_free(duplicate_files);
+    /* Initialize sorted array for file info objects */
+    sorted_files = sorted_file_info_init(total_files);
+    if (!sorted_files) {
         free_file_list(head);
         return NULL;
     }
     
-    /* Build lists of seen and duplicate file info objects */
+    /* Add all files to sorted array */
     current = head;
     while (current) {
-        if (sorted_file_info_contains_size(seen_files, current->size)) {
-            /* Already seen this size - it's a duplicate */
-            sorted_file_info_add(duplicate_files, current);
-        } else {
-            /* First time seeing this size */
-            sorted_file_info_add(seen_files, current);
+        file_info_t *next = current->next;
+        current->next = NULL; /* Break the linked list connection */
+        sorted_file_info_add(sorted_files, current);
+        current = next;
+    }
+    /* Don't free anything - the file_info_t objects are now owned by sorted_files */
+
+    /* Mark files that need MD5 by checking for duplicate sizes in sorted array */
+    for (int i = 0; i < sorted_files->count; i++) {
+        file_info_t *file = sorted_files->files[i];
+        file->needs_md5 = 0; /* Default to not needing MD5 */
+        
+        /* Check if this file has the same size as the previous or next file */
+        if (i > 0 && file->size == sorted_files->files[i - 1]->size) {
+            file->needs_md5 = 1;
+            /* Also mark the previous file if not already marked */
+            if (!sorted_files->files[i - 1]->needs_md5) {
+                sorted_files->files[i - 1]->needs_md5 = 1;
+            }
+        } else if (i + 1 < sorted_files->count && file->size == sorted_files->files[i + 1]->size) {
+            file->needs_md5 = 1;
         }
-        current = current->next;
     }
     
-    /* Second pass: mark files that need MD5 using binary search */
-    current = head;
-    while (current) {
-        current->needs_md5 = sorted_file_info_contains_size(duplicate_files, current->size);
-        current = current->next;
-    }
-    
-    /* Cleanup sorted arrays */
-    sorted_file_info_free(seen_files);
-    sorted_file_info_free(duplicate_files);
-    
-    return head;
+    return sorted_files;
 }
 
-file_info_t *find_matching_file(file_info_t *ref_files, const char *src_file, const options_t *opts) {
+file_info_t *find_matching_file(sorted_file_info_t *ref_files, const char *src_file, const options_t *opts) {
     struct stat st;
-    unsigned char src_md5[MD5_DIGEST_LENGTH];
-    int src_md5_calculated = 0;
-    file_info_t *current = ref_files;
 
     if (stat(src_file, &st) != 0) {
         fprintf(stderr, "Error: Cannot stat source file %s\n", src_file);
         return NULL;
     }
 
-    while (current) {
-        if (current->size == st.st_size) {
-            /* If reference file doesn't need MD5 (unique size), skip MD5 and go to byte comparison */
-            if (!current->needs_md5) {
-                if (files_identical(current->path, src_file)) {
-                    if (opts->verbose) {
-                        printf("Match found: %s matches %s\n", src_file, current->path);
-                    }
-                    return current;
-                }
-            } else {
-                /* Reference file needs MD5 - calculate it lazily if not already done */
-                if (!current->has_md5) {
-                    if (calculate_md5(current->path, current->md5) != 0) {
-                        fprintf(stderr, "Error: Failed to calculate MD5 for reference file %s\n", current->path);
-                        /* Mark as having MD5 to avoid repeated failures */
-                        current->has_md5 = 1;
-                        current = current->next;
-                        continue;
-                    }
-                    current->has_md5 = 1;
-                }
-                
-                /* Calculate source MD5 if not already done */
-                if (!src_md5_calculated) {
-                    if (calculate_md5(src_file, src_md5) != 0) {
-                        fprintf(stderr, "Error: Failed to calculate MD5 for source file %s\n", src_file);
-                        return NULL;
-                    }
-                    src_md5_calculated = 1;
-                }
-                
-                /* Compare MD5 hashes first */
-                if (memcmp(current->md5, src_md5, MD5_DIGEST_LENGTH) == 0) {
-                    /* MD5 matches, do full byte comparison to be sure */
-                    if (files_identical(current->path, src_file)) {
-                        if (opts->verbose) {
-                            printf("Match found: %s matches %s\n", src_file, current->path);
-                        }
-                        return current;
-                    } else {
-                        if (opts->verbose) {
-                            printf("MD5 matched but content differs: %s and %s\n", src_file, current->path);
-                        }
-                    }
-                }
-            }
+    /* Create file_info_t structure for source file */
+    file_info_t src_info;
+    src_info.path = (char *)src_file; /* Cast away const - we won't modify it */
+    src_info.size = st.st_size;
+    memset(src_info.md5, 0, MD5_DIGEST_LENGTH);
+    src_info.needs_md5 = 0; /* Will be set based on reference files */
+    src_info.has_md5 = 0;
+    src_info.next = NULL;
+
+    /* Binary search for the first file with matching size */
+    int left = 0, right = ref_files->count - 1;
+    int first_match = -1;
+    
+    while (left <= right) {
+        int mid = left + (right - left) / 2;
+        if (ref_files->files[mid]->size == st.st_size) {
+            first_match = mid;
+            right = mid - 1; /* Continue searching left for first occurrence */
+        } else if (ref_files->files[mid]->size < st.st_size) {
+            left = mid + 1;
+        } else {
+            right = mid - 1;
         }
-        current = current->next;
+    }
+    
+    /* No files with matching size found */
+    if (first_match == -1) {
+        return NULL;
+    }
+    
+    /* Check all files with the same size starting from first_match */
+    for (int i = first_match; i < ref_files->count && ref_files->files[i]->size == st.st_size; i++) {
+        file_info_t *current = ref_files->files[i];
+        
+        /* Set source file needs_md5 based on reference file */
+        src_info.needs_md5 = current->needs_md5;
+        
+        /* Use our new files_match function */
+        if (files_match(current, &src_info)) {
+            if (opts->verbose) {
+                printf("Match found: %s matches %s\n", src_file, current->path);
+            }
+            return current;
+        }
     }
 
     return NULL;
@@ -351,4 +390,20 @@ void free_file_list(file_info_t *list) {
         free(current);
         current = next;
     }
+}
+
+void free_sorted_file_info(sorted_file_info_t *sorted_files) {
+    if (!sorted_files) return;
+    
+    /* Free all file_info_t objects */
+    for (int i = 0; i < sorted_files->count; i++) {
+        if (sorted_files->files[i]) {
+            free(sorted_files->files[i]->path);
+            free(sorted_files->files[i]);
+        }
+    }
+    
+    /* Free the array of pointers and the structure itself */
+    free(sorted_files->files);
+    free(sorted_files);
 }
