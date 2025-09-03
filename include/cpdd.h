@@ -113,6 +113,7 @@ void fprint_status_update(FILE *stream, const char *format, ...);
 void clear_status_line(void);
 void fclear_status_line(FILE *stream);
 void print_stats_at_bottom(const char *format, ...);
+void truncate_path(const char *path, char *buffer, size_t buffer_size, int max_width);
 
 /* Signal handling and cleanup */
 void setup_signal_handlers(void);

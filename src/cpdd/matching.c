@@ -153,7 +153,6 @@ static void collect_file_info(const char *ref_dir, const options_t *opts, int *c
     struct stat st;
     char full_path[MAX_PATH];
 
-
     dir = opendir(ref_dir);
     if (!dir) {
         return;

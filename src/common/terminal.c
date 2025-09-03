@@ -146,3 +146,30 @@ void print_stats_at_bottom(const char *format, ...) {
     
     va_end(args);
 }
+
+/* Truncate a path to fit within max_width, showing first and last parts */
+void truncate_path(const char *path, char *buffer, size_t buffer_size, int max_width) {
+    int path_len = strlen(path);
+    
+    if (path_len <= max_width) {
+        /* Path fits, just copy it */
+        strncpy(buffer, path, buffer_size - 1);
+        buffer[buffer_size - 1] = '\0';
+        return;
+    }
+    
+    /* Calculate how much to show from start and end */
+    int prefix_len = (max_width - 3) / 2;  /* -3 for "..." */
+    int suffix_len = max_width - prefix_len - 3;
+    
+    if (prefix_len < 1 || suffix_len < 1) {
+        /* Too short to truncate meaningfully */
+        strncpy(buffer, path, buffer_size - 1);
+        buffer[buffer_size - 1] = '\0';
+        return;
+    }
+    
+    snprintf(buffer, buffer_size, "%.*s...%s", 
+             prefix_len, path, 
+             path + path_len - suffix_len);
+}
