@@ -96,6 +96,13 @@ jobs:
       uses: actions/download-artifact@v4
       with:
         path: artifacts
+        merge-multiple: true
+
+    - name: Debug artifacts
+      run: |
+        echo "=== Downloaded artifacts ==="
+        find artifacts -type f -name "*.tar.gz" -o -name "*.sha256" | sort
+        echo "=========================="
 
     - name: Create release notes
       run: |
