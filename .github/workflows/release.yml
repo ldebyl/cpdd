@@ -129,12 +129,8 @@ jobs:
           esac
         fi
         
-        # Build with appropriate make target
-        if [[ "${{ matrix.platform }}" == *"macos"* ]]; then
-          CC=${{ matrix.cc }} make static  # Uses platform detection in Makefile
-        else
-          CC=${{ matrix.cc }} make static  # Force static linking for Unix
-        fi
+        # Build with dynamic linking (clean, minimal binaries)
+        CC=${{ matrix.cc }} make all
         
         # Strip binaries if strip command exists
         strip cpdd syndir 2>/dev/null || true

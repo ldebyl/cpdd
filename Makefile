@@ -18,19 +18,12 @@ syndir: obj/syndir/syndir.o obj/syndir/core.o obj/syndir/args.o obj/common/termi
 debug: CFLAGS += -DDEBUG -g -O0 -fsanitize=address -fno-omit-frame-pointer
 debug: clean cpdd syndir
 
-static:
-	@if uname | grep -q Darwin; then \
-		echo "macOS detected - building with dynamic linking (static not supported)"; \
-		$(MAKE) static-macos; \
-	else \
-		echo "Linux detected - building with static linking"; \
-		$(MAKE) static-linux; \
-	fi
-
-static-linux: CFLAGS += -static
-static-linux: clean cpdd syndir
-
-static-macos: clean cpdd syndir
+# Optional static linking via STATIC=1 environment variable
+ifeq ($(STATIC),1)
+    ifneq ($(shell uname),Darwin)
+        CFLAGS += -static
+    endif
+endif
 
 test: cpdd syndir
 	@echo "Running cpdd test suite..."
@@ -82,17 +75,19 @@ docs/cpdd.txt: man/cpdd.1
 docs/syndir.txt: man/syndir.1
 	./scripts/man2txt.sh man/syndir.1 docs/syndir.txt
 
-.PHONY: help test debug static static-linux static-macos
+.PHONY: help test debug
 help:
 	@echo "Available targets:"
 	@echo "  all      - Build the main program and syndir (default)"
 	@echo "  cpdd     - Build only the main program"
 	@echo "  syndir   - Build only the synthetic directory generator"
 	@echo "  debug    - Build with debug symbols and AddressSanitizer"
-	@echo "  static   - Build statically linked binaries for distribution"
 	@echo "  test     - Run the cpdd test suite"
 	@echo "  docs     - Generate text versions of man pages for GitHub"
 	@echo "  install  - Install to /usr/local/bin and man pages"
 	@echo "  uninstall- Remove from /usr/local/bin and man pages"
 	@echo "  clean    - Remove build artifacts and generated docs"
 	@echo "  help     - Show this help message"
+	@echo ""
+	@echo "Environment variables:"
+	@echo "  STATIC=1 - Enable static linking (ignored on macOS)"
