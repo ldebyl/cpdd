@@ -227,19 +227,21 @@ static int compare_file_info_size(const void *a, const void *b) {
 }
 
 
-static void sorted_file_info_add(sorted_file_info_t *list, file_info_t *file) {
+static int sorted_file_info_add(sorted_file_info_t *list, file_info_t *file) {
     /* Resize if needed */
     if (list->count >= list->capacity) {
         list->capacity *= 2;
         file_info_t **new_files = realloc(list->files, sizeof(file_info_t *) * list->capacity);
         if (!new_files) {
-            return; /* Failed to resize - keep original array */
+            fprintf(stderr, "Warning: Memory allocation failed, some files may not be processed\n");
+            return -1; /* Failed to resize */
         }
         list->files = new_files;
     }
     
     /* Just add - don't sort yet */
     list->files[list->count++] = file;
+    return 0;
 }
 
 
@@ -278,7 +280,16 @@ sorted_file_info_t *scan_reference_directory(const options_t *opts) {
     while (current) {
         file_info_t *next = current->next;
         current->next = NULL; /* Break the linked list connection */
-        sorted_file_info_add(sorted_files, current);
+        if (sorted_file_info_add(sorted_files, current) != 0) {
+            /* Memory allocation failed - free remaining files and continue with what we have */
+            while (current) {
+                file_info_t *temp = current->next;
+                free(current->path);
+                free(current);
+                current = temp;
+            }
+            break;
+        }
         current = next;
     }
     /* Don't free anything - the file_info_t objects are now owned by sorted_files */

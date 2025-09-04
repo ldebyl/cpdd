@@ -8,10 +8,19 @@ CFLAGS = -std=c99 -Wall -Wextra -O2 -Iinclude -D_POSIX_C_SOURCE=200809L -Wno-dep
 COMPILE = mkdir -p obj && $(CC) $(CFLAGS) -c
 
 all: cpdd syndir docs
+
 cpdd: obj/cpdd/cpdd.o obj/cpdd/copy.o obj/cpdd/matching.o obj/cpdd/args.o obj/common/terminal.o obj/common/md5.o
 	$(CC) $(CFLAGS) -o cpdd obj/cpdd/cpdd.o obj/cpdd/copy.o obj/cpdd/matching.o obj/cpdd/args.o obj/common/terminal.o obj/common/md5.o
+
 syndir: obj/syndir/syndir.o obj/syndir/core.o obj/syndir/args.o obj/common/terminal.o
 	$(CC) $(CFLAGS) -o syndir obj/syndir/syndir.o obj/syndir/core.o obj/syndir/args.o obj/common/terminal.o -lm
+
+debug: CFLAGS += -DDEBUG -g -O0 -fsanitize=address -fno-omit-frame-pointer
+debug: clean cpdd syndir
+
+test: cpdd syndir
+	@echo "Running cpdd test suite..."
+	./test_cpdd.sh
 
 obj/cpdd/cpdd.o: src/cpdd/cpdd.c
 	mkdir -p obj/cpdd && $(CC) $(CFLAGS) -c src/cpdd/cpdd.c -o obj/cpdd/cpdd.o
@@ -59,12 +68,14 @@ docs/cpdd.txt: man/cpdd.1
 docs/syndir.txt: man/syndir.1
 	./scripts/man2txt.sh man/syndir.1 docs/syndir.txt
 
-.PHONY: help
+.PHONY: help test debug
 help:
 	@echo "Available targets:"
 	@echo "  all      - Build the main program and syndir (default)"
 	@echo "  cpdd     - Build only the main program"
 	@echo "  syndir   - Build only the synthetic directory generator"
+	@echo "  debug    - Build with debug symbols and AddressSanitizer"
+	@echo "  test     - Run the cpdd test suite"
 	@echo "  docs     - Generate text versions of man pages for GitHub"
 	@echo "  install  - Install to /usr/local/bin and man pages"
 	@echo "  uninstall- Remove from /usr/local/bin and man pages"

@@ -203,7 +203,7 @@ int parse_args(int argc, char *argv[], options_t *opts) {
                 break;
             case 'H':
                 print_usage(argv[0]);
-                return 1;
+                return 0;
             case '?':
                 return -1;
             default:

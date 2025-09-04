@@ -128,7 +128,7 @@ test_case() {
 cleanup() {
     rm -rf "$TEMP_DIR"
 }
-trap cleanup EXIT
+#trap cleanup EXIT
 
 
 # Create directories
