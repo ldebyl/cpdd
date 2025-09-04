@@ -18,8 +18,19 @@ syndir: obj/syndir/syndir.o obj/syndir/core.o obj/syndir/args.o obj/common/termi
 debug: CFLAGS += -DDEBUG -g -O0 -fsanitize=address -fno-omit-frame-pointer
 debug: clean cpdd syndir
 
-static: CFLAGS += -static
-static: clean cpdd syndir
+static:
+	@if uname | grep -q Darwin; then \
+		echo "macOS detected - building with dynamic linking (static not supported)"; \
+		$(MAKE) static-macos; \
+	else \
+		echo "Linux detected - building with static linking"; \
+		$(MAKE) static-linux; \
+	fi
+
+static-linux: CFLAGS += -static
+static-linux: clean cpdd syndir
+
+static-macos: clean cpdd syndir
 
 test: cpdd syndir
 	@echo "Running cpdd test suite..."
@@ -71,7 +82,7 @@ docs/cpdd.txt: man/cpdd.1
 docs/syndir.txt: man/syndir.1
 	./scripts/man2txt.sh man/syndir.1 docs/syndir.txt
 
-.PHONY: help test debug static
+.PHONY: help test debug static static-linux static-macos
 help:
 	@echo "Available targets:"
 	@echo "  all      - Build the main program and syndir (default)"
