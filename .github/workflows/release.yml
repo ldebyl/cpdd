@@ -13,7 +13,9 @@ jobs:
   build:
     name: Build ${{ matrix.platform }}
     runs-on: ${{ matrix.os }}
+    continue-on-error: true
     strategy:
+      fail-fast: false
       matrix:
         include:
           # Linux x86_64
@@ -191,7 +193,7 @@ jobs:
     name: Create GitHub Release
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/') && always()
     
     steps:
     - name: Download all artifacts
@@ -200,11 +202,10 @@ jobs:
         path: artifacts
         merge-multiple: true
 
-    - name: Debug artifacts
+    - name: List available artifacts  
       run: |
-        echo "=== Downloaded artifacts ==="
-        find artifacts -type f -name "*.tar.gz" -o -name "*.sha256" | sort
-        echo "=========================="
+        echo "Available artifacts:"
+        find artifacts -name "*.tar.gz" | sort
 
     - name: Create release notes
       run: |
