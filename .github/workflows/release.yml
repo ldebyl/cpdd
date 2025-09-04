@@ -49,8 +49,11 @@ jobs:
 
     - name: Create release archive
       run: |
-        VERSION="${GITHUB_REF#refs/tags/}"
+        # Use GitHub Actions variables for consistent naming
+        VERSION="${{ github.ref_name }}"
         ARCHIVE_NAME="cpdd-${VERSION#v}-${{ matrix.platform }}"
+        
+        echo "Creating archive: $ARCHIVE_NAME"
         
         mkdir -p dist/$ARCHIVE_NAME
         
@@ -71,6 +74,8 @@ jobs:
         else
           shasum -a 256 ${ARCHIVE_NAME}.tar.gz > ${ARCHIVE_NAME}.tar.gz.sha256
         fi
+        
+        echo "Created: ${ARCHIVE_NAME}.tar.gz"
 
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
