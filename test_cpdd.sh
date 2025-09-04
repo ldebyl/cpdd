@@ -89,7 +89,7 @@ make syndir
 
 # Function to count hard links
 count_hard_links() {
-    find "$1" -type f -exec stat -c "%h %n" {} \; | awk '$1 > 1' | wc -l
+    find "$1" -type f -links +1 | wc -l
 }
 
 # Function to count soft links
