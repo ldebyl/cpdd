@@ -168,6 +168,7 @@ void format_stats_line(const stats_t *stats, int human_readable, char *buffer, s
 }
 
 
+/* Prints final statistics */
 void print_statistics(const stats_t *stats, int human_readable) {
     char copied_bytes[32], linked_bytes[32], soft_linked_bytes[32];
     
@@ -285,19 +286,23 @@ int copy_or_link_file(const char *src, const char *dest, const char *ref, const 
         }
     }
     
+    // Open source file for reading
     src_fd = open(src, O_RDONLY);
     if (src_fd < 0) {
         return -1;
     }
-    
+
+    // Open destination file for writing (create/truncate)
     dest_fd = open(dest, O_WRONLY | O_CREAT | O_TRUNC, src_st.st_mode);
     if (dest_fd < 0) {
         close(src_fd);
         return -1;
     }
     
+    // Register the incomplete file for cleanup on signals
     register_incomplete_file(dest);
     
+    // Perform the copy
     while ((bytes_read = read(src_fd, buffer, BUFFER_SIZE)) > 0) {
         bytes_written = write(dest_fd, buffer, bytes_read);
         if (bytes_written != bytes_read) {

@@ -18,6 +18,9 @@ syndir: obj/syndir/syndir.o obj/syndir/core.o obj/syndir/args.o obj/common/termi
 debug: CFLAGS += -DDEBUG -g -O0 -fsanitize=address -fno-omit-frame-pointer
 debug: clean cpdd syndir
 
+static: CFLAGS += -static
+static: clean cpdd syndir
+
 test: cpdd syndir
 	@echo "Running cpdd test suite..."
 	./test_cpdd.sh
@@ -68,13 +71,14 @@ docs/cpdd.txt: man/cpdd.1
 docs/syndir.txt: man/syndir.1
 	./scripts/man2txt.sh man/syndir.1 docs/syndir.txt
 
-.PHONY: help test debug
+.PHONY: help test debug static
 help:
 	@echo "Available targets:"
 	@echo "  all      - Build the main program and syndir (default)"
 	@echo "  cpdd     - Build only the main program"
 	@echo "  syndir   - Build only the synthetic directory generator"
 	@echo "  debug    - Build with debug symbols and AddressSanitizer"
+	@echo "  static   - Build statically linked binaries for distribution"
 	@echo "  test     - Run the cpdd test suite"
 	@echo "  docs     - Generate text versions of man pages for GitHub"
 	@echo "  install  - Install to /usr/local/bin and man pages"
