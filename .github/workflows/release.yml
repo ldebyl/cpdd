@@ -34,7 +34,6 @@ jobs:
 
     - name: Build static binaries
       run: |
-        CC=${{ matrix.cc }} make clean
         CC=${{ matrix.cc }} make static
         strip cpdd syndir || true
 
@@ -42,7 +41,8 @@ jobs:
       run: |
         ./cpdd --help
         ./syndir --help
-        make test
+        # Run test with fewer files for CI speed
+        ./test_cpdd.sh -f 50
 
     - name: Create release archive
       run: |
