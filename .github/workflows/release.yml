@@ -81,9 +81,19 @@ jobs:
     name: Create GitHub Release
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
+    # Temporarily removed condition for debugging
+    # if: startsWith(github.ref, 'refs/tags/')
     
     steps:
+    - name: Debug GitHub context
+      run: |
+        echo "github.ref: ${{ github.ref }}"
+        echo "github.ref_name: ${{ github.ref_name }}"
+        echo "github.ref_type: ${{ github.ref_type }}"
+        echo "Event name: ${{ github.event_name }}"
+        echo "Full context:"
+        echo '${{ toJSON(github) }}'
+    
     - name: Download all artifacts
       uses: actions/download-artifact@v4
       with:
