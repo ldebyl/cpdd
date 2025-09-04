@@ -36,28 +36,22 @@ static int terminal_supports_clear_eol_for_fd(int fd) {
     }
     
     const char *term = getenv("TERM");
-    if (!term) {
-        return 0;
-    }
     
-    if (strncmp(term, "dumb", 4) == 0) {
-        return 0;
-    }
-    
-    if (strstr(term, "xterm") || 
+    if (strstr(term, "xterm")  || 
         strstr(term, "screen") ||
-        strstr(term, "tmux") ||
-        strstr(term, "vt100") ||
-        strstr(term, "vt102") ||
-        strstr(term, "vt220") ||
-        strstr(term, "vt320") ||
-        strstr(term, "linux") ||
-        strstr(term, "color") ||
-        strstr(term, "ansi")) {
+        strstr(term, "tmux")   ||
+        strstr(term, "vt100")  ||
+        strstr(term, "vt102")  ||
+        strstr(term, "vt220")  ||
+        strstr(term, "vt320")  ||
+        strstr(term, "linux")  ||
+        strstr(term, "color")  ||
+        strstr(term, "ansi"))
+    {
         return 1;
+    } else {
+        return 0;
     }
-    
-    return 0;
 }
 
 int terminal_supports_clear_eol(void) {

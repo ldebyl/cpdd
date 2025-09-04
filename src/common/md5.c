@@ -215,6 +215,7 @@ void MD5_Final(unsigned char digest[MD5_DIGEST_LENGTH], MD5_CTX *ctx) {
     memset(ctx, 0, sizeof(*ctx));
 }
 
+/* Generates MD5 for the specified file */
 int md5sum(const char *filename, unsigned char digest[MD5_DIGEST_LENGTH]) {
     FILE *file;
     MD5_CTX ctx;

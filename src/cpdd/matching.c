@@ -198,7 +198,7 @@ static void collect_file_info(const char *ref_dir, const options_t *opts, int *c
     
     closedir(dir);
     if (opts->verbose == 1) {
-        print_status_update("\rScanned %d reference files in %s", *count, ref_dir);
+        print_status_update("\rScanned %d reference files in", *count, ref_dir);
         fflush(stdout);
     }
 }
