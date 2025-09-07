@@ -34,11 +34,11 @@ void print_usage(const char *program_name) {
     printf("\nOptions:\n");
     printf("  -f, --files COUNT     Number of files to generate (default: 100)\n");
     printf("  -d, --dirs COUNT      Number of directories to create (default: 10)\n");
-    printf("  -p, --percent PCT     Percentage of source files that duplicate reference (0-100, default: 30)\n");
+    printf("  -p, --percent FACTOR  Fraction of source files that duplicate reference (0.0-1.0, default: 0.3)\n");
     printf("  -i, --similarity VAL  Similarity factor for duplicates (0.0-1.0: 0=different, 1=identical, default: 1.0)\n");
-    printf("  -e, --exact-percent PCT   Percentage of duplicates that are exact copies (default: 40)\n");
-    printf("  -r, --prefix-percent PCT  Percentage of duplicates similar at start (default: 30)\n");
-    printf("  -u, --suffix-percent PCT  Percentage of duplicates similar at end (default: 20)\n");
+    printf("  -e, --exact-percent FACTOR    Fraction of duplicates that are exact copies (default: 0.4)\n");
+    printf("  -r, --prefix-percent FACTOR   Fraction of duplicates similar at start (default: 0.3)\n");
+    printf("  -u, --suffix-percent FACTOR   Fraction of duplicates similar at end (default: 0.2)\n");
     printf("  -b, --size-buckets COUNT  Number of size buckets for forced collisions (0=normal distribution, default: 0)\n");
     printf("      --size-p50 SIZE   50th percentile file size in bytes (default: 4096)\n");
     printf("      --size-p95 SIZE   95th percentile file size in bytes (default: 65536)\n");
@@ -48,9 +48,9 @@ void print_usage(const char *program_name) {
     printf("  -v, --verbose         Verbose output\n");
     printf("  -h, --help            Show this help message\n");
     printf("\nExamples:\n");
-    printf("  %s /tmp/ref /tmp/src                    # Default: 100 files, 10 dirs, 30%% duplicates\n", program_name);
-    printf("  %s -f 200 -d 20 -p 50 /tmp/ref /tmp/src # 200 files, 20 dirs, 50%% duplicates\n", program_name);
-    printf("  %s -v -f 50 -p 80 /tmp/ref /tmp/src     # 50 files, 80%% duplicates, verbose\n", program_name);
+    printf("  %s /tmp/ref /tmp/src                      # Default: 100 files, 10 dirs, 30%% duplicates\n", program_name);
+    printf("  %s -f 200 -d 20 -p 0.5 /tmp/ref /tmp/src # 200 files, 20 dirs, 50%% duplicates\n", program_name);
+    printf("  %s -v -f 50 -p 0.8 /tmp/ref /tmp/src     # 50 files, 80%% duplicates, verbose\n", program_name);
     printf("\nDescription:\n");
     printf("  Creates a reference directory with random files, then creates a source\n");
     printf("  directory where a specified percentage of files have identical content\n");
@@ -84,11 +84,11 @@ int parse_args(int argc, char *argv[], options_t *opts) {
     opts->src_root = NULL;
     opts->num_files = 100;
     opts->num_dirs = 10;
-    opts->duplicate_percent = 30;
+    opts->duplicate_percent = 0.3;     /* 30% of files are duplicates */
     opts->similarity = 1.0;         /* Default: exact duplicates */
-    opts->exact_percent = 40;       /* 40% of duplicates are exact */
-    opts->prefix_percent = 30;      /* 30% of duplicates similar at start */
-    opts->suffix_percent = 20;      /* 20% of duplicates similar at end */
+    opts->exact_percent = 0.4;      /* 40% of duplicates are exact */
+    opts->prefix_percent = 0.3;     /* 30% of duplicates similar at start */
+    opts->suffix_percent = 0.2;     /* 20% of duplicates similar at end */
     /* Remaining 10% will be random */
     opts->size_buckets = 0;         /* Default: normal size distribution */
     opts->verbose = 0;
@@ -115,9 +115,9 @@ int parse_args(int argc, char *argv[], options_t *opts) {
                 }
                 break;
             case 'p':
-                opts->duplicate_percent = atoi(optarg);
-                if (opts->duplicate_percent < 0 || opts->duplicate_percent > 100) {
-                    fprintf(stderr, "Error: Duplicate percentage must be 0-100\n");
+                opts->duplicate_percent = atof(optarg);
+                if (opts->duplicate_percent < 0.0 || opts->duplicate_percent > 1.0) {
+                    fprintf(stderr, "Error: Duplicate fraction must be 0.0-1.0\n");
                     return -1;
                 }
                 break;
@@ -157,23 +157,23 @@ int parse_args(int argc, char *argv[], options_t *opts) {
                 }
                 break;
             case 'e':
-                opts->exact_percent = atoi(optarg);
-                if (opts->exact_percent < 0 || opts->exact_percent > 100) {
-                    fprintf(stderr, "Error: Exact percentage must be 0-100\n");
+                opts->exact_percent = atof(optarg);
+                if (opts->exact_percent < 0.0 || opts->exact_percent > 1.0) {
+                    fprintf(stderr, "Error: Exact fraction must be 0.0-1.0\n");
                     return -1;
                 }
                 break;
             case 'r':
-                opts->prefix_percent = atoi(optarg);
-                if (opts->prefix_percent < 0 || opts->prefix_percent > 100) {
-                    fprintf(stderr, "Error: Prefix percentage must be 0-100\n");
+                opts->prefix_percent = atof(optarg);
+                if (opts->prefix_percent < 0.0 || opts->prefix_percent > 1.0) {
+                    fprintf(stderr, "Error: Prefix fraction must be 0.0-1.0\n");
                     return -1;
                 }
                 break;
             case 'u':
-                opts->suffix_percent = atoi(optarg);
-                if (opts->suffix_percent < 0 || opts->suffix_percent > 100) {
-                    fprintf(stderr, "Error: Suffix percentage must be 0-100\n");
+                opts->suffix_percent = atof(optarg);
+                if (opts->suffix_percent < 0.0 || opts->suffix_percent > 1.0) {
+                    fprintf(stderr, "Error: Suffix fraction must be 0.0-1.0\n");
                     return -1;
                 }
                 break;
@@ -212,11 +212,11 @@ int parse_args(int argc, char *argv[], options_t *opts) {
         return -1;
     }
     
-    /* Validate similarity percentages */
-    int total_percent = opts->exact_percent + opts->prefix_percent + opts->suffix_percent;
-    if (total_percent > 100) {
-        fprintf(stderr, "Error: Similarity percentages cannot exceed 100%% (exact=%d, prefix=%d, suffix=%d, total=%d)\n",
-                opts->exact_percent, opts->prefix_percent, opts->suffix_percent, total_percent);
+    /* Validate similarity fractions */
+    double total_fraction = opts->exact_percent + opts->prefix_percent + opts->suffix_percent;
+    if (total_fraction > 1.0) {
+        fprintf(stderr, "Error: Similarity fractions cannot exceed 1.0 (exact=%.2f, prefix=%.2f, suffix=%.2f, total=%.2f)\n",
+                opts->exact_percent, opts->prefix_percent, opts->suffix_percent, total_fraction);
         return -1;
     }
     

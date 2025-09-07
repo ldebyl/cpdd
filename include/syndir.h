@@ -27,11 +27,11 @@ typedef struct {
     char *src_root;        /* Source directory path */
     int num_files;         /* Total number of files to generate */
     int num_dirs;          /* Number of subdirectories to create */
-    int duplicate_percent; /* Percentage of files that should be duplicates */
-    double similarity;     /* Similarity factor (0.0-1.0): 0=completely different, 1=identical */
-    int exact_percent;     /* Percentage of duplicates that are exact copies */
-    int prefix_percent;    /* Percentage of duplicates similar at start */
-    int suffix_percent;    /* Percentage of duplicates similar at end */
+    double duplicate_percent; /* Fraction of files that should be duplicates (0.0-1.0) */
+    double similarity;        /* Similarity factor (0.0-1.0): 0=completely different, 1=identical */
+    double exact_percent;     /* Fraction of duplicates that are exact copies (0.0-1.0) */
+    double prefix_percent;    /* Fraction of duplicates similar at start (0.0-1.0) */
+    double suffix_percent;    /* Fraction of duplicates similar at end (0.0-1.0) */
     int size_buckets;      /* Number of size buckets to force collisions (0=random sizes) */
     int verbose;           /* Verbose output */
     size_t size_p50;       /* 50th percentile file size (median) */

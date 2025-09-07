@@ -389,8 +389,8 @@ int create_source_directory(const char *root, int num_files, int num_dirs,
     if (opts->verbose)
     {
         printf("Creating source directory: %s\n", root);
-        printf("  Files: %d, Directories: %d, Duplicates: %d%%\n",
-               num_files, num_dirs, opts->duplicate_percent);
+        printf("  Files: %d, Directories: %d, Duplicates: %.0f%%\n",
+               num_files, num_dirs, opts->duplicate_percent * 100);
     }
 
     if (create_directory_tree(root, num_dirs) != 0)
@@ -399,7 +399,7 @@ int create_source_directory(const char *root, int num_files, int num_dirs,
         return -1;
     }
 
-    int num_duplicates = (num_files * opts->duplicate_percent) / 100;
+    int num_duplicates = (int)(num_files * opts->duplicate_percent);
     int duplicates_created = 0;
 
     file_entry_t *ref_current = ref_files;
@@ -436,7 +436,7 @@ int create_source_directory(const char *root, int num_files, int num_dirs,
             {
                 // Determine similarity pattern based on distribution percentages
                 similarity_pattern_t pattern;
-                int pattern_rand = rand() % 100;
+                double pattern_rand = (double)rand() / RAND_MAX;
                 
                 if (pattern_rand < opts->exact_percent) {
                     pattern = SIMILARITY_EXACT;
@@ -607,8 +607,9 @@ int generate_test_data(const options_t *opts)
                opts->size_buckets, opts->size_p50, opts->size_p95, opts->size_p100);
     }
     
-    printf("  Similarity:       %.0f%% (exact=%d%%, prefix=%d%%, suffix=%d%%)\n",
-           opts->similarity * 100, opts->exact_percent, opts->prefix_percent, opts->suffix_percent);
+    printf("  Similarity:       %.0f%% (exact=%.0f%%, prefix=%.0f%%, suffix=%.0f%%)\n",
+           opts->similarity * 100, opts->exact_percent * 100, 
+           opts->prefix_percent * 100, opts->suffix_percent * 100);
     printf("  Seed:             %u\n", opts->seed);
 
     return 0;
