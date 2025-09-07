@@ -238,3 +238,16 @@ int md5sum(const char *filename, unsigned char digest[MD5_DIGEST_LENGTH]) {
     
     return 0;
 }
+
+/* Calculate truncated MD5 hash for a single block of data */
+void calculate_block_hash(const unsigned char *block, size_t size, unsigned char *hash_out, int hash_size) {
+    unsigned char full_md5[MD5_DIGEST_LENGTH];
+    MD5_CTX ctx;
+    
+    MD5_Init(&ctx);
+    MD5_Update(&ctx, block, size);
+    MD5_Final(full_md5, &ctx);
+    
+    /* Copy only the requested number of bytes */
+    memcpy(hash_out, full_md5, hash_size);
+}

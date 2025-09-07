@@ -79,4 +79,13 @@ size_t generate_bucketed_size(size_t p50, size_t p95, size_t p100, int num_bucke
 void free_file_list(file_entry_t *list);
 void print_usage(const char *program_name);
 
+/* Terminal functions */
+int terminal_supports_clear_eol(void);
+void print_status_update(const char *format, ...);
+void fprint_status_update(FILE *stream, const char *format, ...);
+void clear_status_line(void);
+void fclear_status_line(FILE *stream);
+void print_stats_at_bottom(const char *format, ...);
+void truncate_path(const char *path, char *buffer, size_t buffer_size, int max_width);
+
 #endif

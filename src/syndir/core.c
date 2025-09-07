@@ -339,7 +339,11 @@ int create_reference_directory(const char *root, int num_files, int num_dirs,
             }
             else if ((i + 1) % 10 == 0)
             {
-                printf("  Created %d/%d reference files\n", i + 1, num_files);
+                if (opts->verbose == 0) {
+                    print_status_update("Created %d/%d reference files", i + 1, num_files);
+                } else {
+                    printf("  Created %d/%d reference files\n", i + 1, num_files);
+                }
             }
         }
         else
@@ -352,6 +356,12 @@ int create_reference_directory(const char *root, int num_files, int num_dirs,
     }
 
     *file_list = head;
+    
+    /* Clear status line if we were showing progress updates */
+    if (opts->verbose == 0) {
+        clear_status_line();
+    }
+    
     return 0;
 }
 
@@ -534,16 +544,26 @@ int create_source_directory(const char *root, int num_files, int num_dirs,
 
         fclose(f);
 
-        if (opts->verbose && (i + 1) % 10 == 0)
+        if ((i + 1) % 10 == 0)
         {
-            printf("  Created %d/%d source files (%d duplicates so far)\n",
-                   i + 1, num_files, duplicates_created);
+            if (opts->verbose == 0) {
+                print_status_update("Created %d/%d source files (%d duplicates so far)",
+                                  i + 1, num_files, duplicates_created);
+            } else if (opts->verbose) {
+                printf("  Created %d/%d source files (%d duplicates so far)\n",
+                       i + 1, num_files, duplicates_created);
+            }
         }
 
         free(dir);
         free(filename);
     }
 
+    /* Clear status line if we were showing progress updates */
+    if (opts->verbose == 0) {
+        clear_status_line();
+    }
+    
     if (opts->verbose)
     {
         printf("Completed: %d duplicates out of %d files (%.1f%%)\n",
