@@ -42,12 +42,25 @@
 #define MD5_DIGEST_LENGTH 16
 #define BUFFER_SIZE 8192
 
+/* Block cache configuration */
+#define BLOCK_HASH_SIZE 4         /* Size of hash per block (4 or 8 bytes) */
+#define BLOCK_CACHE_GROW_SIZE 16  /* Number of blocks to allocate at once */
+#define MAX_CACHED_BLOCKS 512     /* Maximum blocks to cache per file */
+
 /* Linking strategy options */
 typedef enum {
     LINK_NONE,    /* Regular copy */
     LINK_HARD,    /* Hard links to duplicates */
     LINK_SOFT     /* Symbolic links to duplicates */
 } link_type_t;
+
+/* File matching results */
+typedef enum {
+    MATCH_SUCCESS = 1,        /* Files match completely */
+    MATCH_FAIL_CACHED = 0,    /* Fast rejection via cached blocks */
+    MATCH_FAIL_BYTEWISE = -1, /* Failed during bytewise comparison */
+    MATCH_ERROR = -2          /* File I/O or other error */
+} match_result_t;
 
 /* File attributes to preserve during copy */
 typedef struct {
@@ -66,6 +79,19 @@ typedef struct {
     off_t bytes_copied;      /* Bytes physically copied */
     off_t bytes_hard_linked; /* Bytes saved via hard links */
     off_t bytes_soft_linked; /* Bytes saved via soft links */
+    
+    /* Block cache statistics */
+    int files_compared;      /* Files that went through comparison */
+    int cache_hits;          /* Fast rejections via cached blocks */
+    int total_cache_depth;   /* Sum of all cache depths for averaging */
+    int min_cache_depth;     /* Minimum cache depth encountered */
+    int max_cache_depth;     /* Maximum cache depth encountered */
+    
+    /* Size collision statistics */
+    int total_source_files;  /* Total source files processed */
+    int files_with_size_matches; /* Source files that had at least one size match in reference */
+    int unique_ref_sizes;    /* Number of unique sizes in reference files */
+    int total_ref_files;     /* Total reference files scanned */
 } stats_t;
 
 /* Command line options */
@@ -85,13 +111,18 @@ typedef struct {
     preserve_t preserve;    /* Attributes to preserve */
 } options_t;
 
+/* Block-based MD5 cache for incremental comparison */
+typedef struct {
+    unsigned char (*block_md5s)[BLOCK_HASH_SIZE]; /* Dynamically allocated block hashes */
+    int cached_blocks;                             /* Number of blocks currently cached */
+    int allocated_blocks;                          /* Number of blocks allocated */
+} block_cache_t;
+
 /* Reference file information for deduplication */
 typedef struct file_info {
     char *path;                         /* Full path to file */
     off_t size;                         /* File size in bytes */
-    unsigned char md5[MD5_DIGEST_LENGTH]; /* MD5 checksum */
-    int needs_md5;                      /* Whether MD5 calculation is needed */
-    int has_md5;                        /* Whether MD5 has been calculated */
+    block_cache_t block_cache;          /* Block-based MD5 cache */
     struct file_info *next;             /* Next file in linked list */
 } file_info_t;
 
@@ -110,10 +141,14 @@ typedef struct {
 } sorted_file_info_t;
 
 /* File matching and deduplication */
-sorted_file_info_t *scan_reference_directory(const options_t *opts);
-file_info_t *find_matching_file(sorted_file_info_t *ref_files, const char *src_file, const options_t *opts);
-int files_identical(const char *file1, const char *file2);
-int files_match(file_info_t *ref_file, file_info_t *src_file);
+sorted_file_info_t *scan_reference_directory(const options_t *opts, stats_t *stats);
+file_info_t *find_matching_file(sorted_file_info_t *ref_files, const char *src_file, const options_t *opts, stats_t *stats);
+match_result_t files_match(file_info_t *ref_file, file_info_t *src_file);
+
+/* Block cache management */
+void init_block_cache(block_cache_t *cache);
+int grow_block_cache(block_cache_t *cache);
+void free_block_cache(block_cache_t *cache);
 
 /* File operations */
 int copy_or_link_file(const char *src, const char *dest, const char *ref, const options_t *opts, stats_t *stats);

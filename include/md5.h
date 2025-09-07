@@ -48,6 +48,9 @@ void MD5_Init(MD5_CTX *ctx);
 void MD5_Update(MD5_CTX *ctx, const void *data, size_t len);
 void MD5_Final(unsigned char digest[MD5_DIGEST_LENGTH], MD5_CTX *ctx);
 
-/* High-level file MD5 computation */
+/* Calculate MD5 has from a filename using standard MD5 DIgest Length */
 int md5sum(const char *filename, unsigned char digest[MD5_DIGEST_LENGTH]);
+
+/* Block-based MD5 computation withe definable hash size */
+void calculate_block_hash(const unsigned char *block, size_t size, unsigned char *hash_out, int hash_size);
 #endif

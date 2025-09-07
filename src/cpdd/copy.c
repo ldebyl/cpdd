@@ -188,6 +188,33 @@ void print_statistics(const stats_t *stats, int human_readable) {
     format_bytes(total_bytes, human_readable, total_bytes_str, sizeof(total_bytes_str));
     
     printf("  Total files:      %d (%s)\n", total_files, total_bytes_str);
+    
+    /* Display cache statistics if any comparisons were made */
+    if (stats->files_compared > 0) {
+        printf("\nCache Statistics:\n");
+        printf("  Files compared:   %d\n", stats->files_compared);
+        printf("  Fast rejections:  %d (%.1f%%)\n", stats->cache_hits, 
+               (double)stats->cache_hits / stats->files_compared * 100.0);
+        
+        double avg_cache_depth = (double)stats->total_cache_depth / stats->files_compared;
+        printf("  Cache depth - avg: %.1f, min: %d, max: %d blocks\n", 
+               avg_cache_depth, stats->min_cache_depth, stats->max_cache_depth);
+    }
+    
+    /* Display size collision statistics */
+    if (stats->total_ref_files > 0 && stats->total_source_files > 0) {
+        printf("\nSize Collision Statistics:\n");
+        printf("  Reference files:  %d (with %d unique sizes)\n", 
+               stats->total_ref_files, stats->unique_ref_sizes);
+        printf("  Source files:     %d (%d had size matches)\n", 
+               stats->total_source_files, stats->files_with_size_matches);
+        
+        double ref_unique_pct = (double)stats->unique_ref_sizes / stats->total_ref_files * 100.0;
+        double size_match_pct = (double)stats->files_with_size_matches / stats->total_source_files * 100.0;
+        
+        printf("  Unique ref sizes: %.1f%% (higher = fewer opportunities for matching)\n", ref_unique_pct);
+        printf("  Size matches:     %.1f%% (files that proceeded to content comparison)\n", size_match_pct);
+    }
 }
 
 /* Ensures that the directory structure for dest_path exists,
@@ -398,7 +425,7 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
             }
             
             if (ref_files) {
-                matching_file = find_matching_file(ref_files, src_full, opts);
+                matching_file = find_matching_file(ref_files, src_full, opts, stats);
             }
             
             if (create_directory_structure(src_full, dest_full) != 0) {
@@ -467,7 +494,7 @@ int copy_directory(const options_t *opts, stats_t *stats) {
         if (opts->verbose) {
             printf("Scanning %d reference directories...\n", opts->ref_dir_count);
         }
-        ref_files = scan_reference_directory(opts);
+        ref_files = scan_reference_directory(opts, stats);
         if (!ref_files) {
             if (opts->verbose) {
                 printf("Warning: No files found in reference directories\n");
@@ -523,7 +550,7 @@ int copy_directory(const options_t *opts, stats_t *stats) {
             }
             
             if (ref_files) {
-                matching_file = find_matching_file(ref_files, src_path, opts);
+                matching_file = find_matching_file(ref_files, src_path, opts, stats);
                 if (opts->verbose && matching_file) {
                     printf("Found matching reference file for %s: %s\n", src_path, matching_file->path);
                 }

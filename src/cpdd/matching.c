@@ -26,122 +26,138 @@
 #include "cpdd.h"
 #include "md5.h"
 
-/* Determines if two files are bytewise identical. */
-int files_identical(const char *file1, const char *file2) {
-    FILE *f1, *f2;
-    unsigned char buffer1[BUFFER_SIZE], buffer2[BUFFER_SIZE];
-    size_t bytes1, bytes2;
-    int result = 1;
-    
-    f1 = fopen(file1, "rb");
-    f2 = fopen(file2, "rb");
-    
-    if (!f1 || !f2) {
-        if (f1) fclose(f1);
-        if (f2) fclose(f2);
-        return 0;
-    }
-    
-    do {
-        bytes1 = fread(buffer1, 1, BUFFER_SIZE, f1);
-        bytes2 = fread(buffer2, 1, BUFFER_SIZE, f2);
-        
-        if (bytes1 != bytes2 || memcmp(buffer1, buffer2, bytes1) != 0) {
-            result = 0;
-            break;
-        }
-    } while (bytes1 > 0);
-    
-    fclose(f1);
-    fclose(f2);
-    
-    return result;
+/* Initialize block cache to empty state */
+void init_block_cache(block_cache_t *cache) {
+    cache->block_md5s = NULL;
+    cache->cached_blocks = 0;
+    cache->allocated_blocks = 0;
 }
 
-/* Efficiently determines if two files are identical.
- * 1. Checks if sizes match (should always be true when called)
- * 2. If both have MD5, compare hashes first, then byte compare if they match
- * 3. If neither needs MD5 (reference file size is unique), just do byte compare
- * 4. If at least one needs MD5, read both files in chunks, updating MD5 as needed,
- *    and comparing bytes until a mismatch is found or EOF is reached.
- * 5. Finalize MD5 for files that need it for futuer comparisons.
+/* Grow block cache by BLOCK_CACHE_GROW_SIZE blocks */
+int grow_block_cache(block_cache_t *cache) {
+    if (cache->allocated_blocks >= MAX_CACHED_BLOCKS) {
+        return 0; /* Already at maximum size */
+    }
+    
+    int new_size = cache->allocated_blocks + BLOCK_CACHE_GROW_SIZE;
+    if (new_size > MAX_CACHED_BLOCKS) {
+        new_size = MAX_CACHED_BLOCKS;
+    }
+    
+    unsigned char (*new_blocks)[BLOCK_HASH_SIZE] = realloc(cache->block_md5s, 
+                                                          new_size * BLOCK_HASH_SIZE);
+    if (!new_blocks) {
+        return -1; /* Memory allocation failed */
+    }
+    
+    cache->block_md5s = new_blocks;
+    cache->allocated_blocks = new_size;
+    return 1; /* Success */
+}
+
+/* Free block cache memory */
+void free_block_cache(block_cache_t *cache) {
+    if (cache->block_md5s) {
+        free(cache->block_md5s);
+        cache->block_md5s = NULL;
+    }
+    cache->cached_blocks = 0;
+    cache->allocated_blocks = 0;
+}
+
+/* Update block cache with new block hash if needed */
+static int update_block_cache(file_info_t *file, int block_num, 
+                             const unsigned char *buffer, size_t bytes) {
+    /* Only cache if we need to (beyond current cache) */
+    if (bytes == 0 || block_num < file->block_cache.cached_blocks) {
+        return 1; /* Nothing to do */
+    }
+    
+    /* Check if we're already at maximum blocks */
+    if (block_num >= MAX_CACHED_BLOCKS) {
+        return 0; /* Can't cache beyond maximum */
+    }
+    
+    /* Grow cache if needed */
+    if (block_num >= file->block_cache.allocated_blocks) {
+        if (grow_block_cache(&file->block_cache) <= 0) {
+            return 0; /* Can't grow cache */
+        }
+    }
+    
+    /* Calculate and store block hash */
+    unsigned char block_hash[BLOCK_HASH_SIZE];
+    calculate_block_hash(buffer, bytes, block_hash, BLOCK_HASH_SIZE);
+    memcpy(file->block_cache.block_md5s[block_num], block_hash, BLOCK_HASH_SIZE);
+    file->block_cache.cached_blocks = block_num + 1;
+    
+    return 1; /* Success */
+}
+
+
+/* Block-based file comparison with dynamic cache growth.
+ * 1. First check cached blocks from reference file for fast rejection
+ * 2. If cached blocks match, do full bytewise comparison from beginning  
+ * 3. Build block cache for both files during comparison
+ * 4. Stop caching at first mismatch or when cache is full
  */
-int files_match(file_info_t *ref_file, file_info_t *src_file) {
+match_result_t files_match(file_info_t *ref_file, file_info_t *src_file) {
     /* Files should always have the same size when this function is called */
     if (ref_file->size != src_file->size) {
         fprintf(stderr, "Internal error: files_match called with different sized files\n");
-        return 0;
+        return MATCH_ERROR;
     }
     
-    /* If both files have MD5, compare hashes first */
-    if (ref_file->has_md5 && src_file->has_md5) {
-        if (memcmp(ref_file->md5, src_file->md5, MD5_DIGEST_LENGTH) != 0) {
-            return 0;
+    
+    /* Phase 1: Fast rejection using cached blocks (pure memory comparison) */
+    int common_cached_blocks = (ref_file->block_cache.cached_blocks < src_file->block_cache.cached_blocks) ?
+                               ref_file->block_cache.cached_blocks : src_file->block_cache.cached_blocks;
+    
+    if (common_cached_blocks > 0) {
+        /* Compare all common cached blocks in one memcmp since they're contiguous */
+        if (memcmp(ref_file->block_cache.block_md5s, src_file->block_cache.block_md5s, 
+                   common_cached_blocks * BLOCK_HASH_SIZE) != 0) {
+            return MATCH_FAIL_CACHED; /* Fast rejection - cached blocks differ */
         }
-        /* MD5 matches, do byte comparison to be certain */
-        return files_identical(ref_file->path, src_file->path);
     }
     
-    /* If neither file needs MD5 (both unique sizes), just do byte comparison */
-    if (!ref_file->needs_md5 && !src_file->needs_md5) {
-        return files_identical(ref_file->path, src_file->path);
-    }
-    
-    /* At least one file needs MD5 calculation - do it while comparing bytes */
-    FILE *ref_fp = fopen(ref_file->path, "rb");
+    /* Phase 2: Full bytewise comparison with synchronized cache building */
     FILE *src_fp = fopen(src_file->path, "rb");
-    if (!ref_fp || !src_fp) {
-        if (ref_fp) fclose(ref_fp);
+    FILE *ref_fp = fopen(ref_file->path, "rb");
+    if (!src_fp || !ref_fp) {
         if (src_fp) fclose(src_fp);
-        return 0;
+        if (ref_fp) fclose(ref_fp);
+        return MATCH_ERROR;
     }
-    
-    MD5_CTX ref_ctx, src_ctx;
-    int calc_ref_md5 = ref_file->needs_md5 && !ref_file->has_md5;
-    int calc_src_md5 = src_file->needs_md5 && !src_file->has_md5;
-    
-    if (calc_ref_md5) MD5_Init(&ref_ctx);
-    if (calc_src_md5) MD5_Init(&src_ctx);
     
     unsigned char ref_buffer[BUFFER_SIZE], src_buffer[BUFFER_SIZE];
     size_t ref_bytes, src_bytes;
+    int block_num = 0;
     int files_match = 1;
     
+    /* Read and compare blocks */
     do {
         ref_bytes = fread(ref_buffer, 1, BUFFER_SIZE, ref_fp);
         src_bytes = fread(src_buffer, 1, BUFFER_SIZE, src_fp);
         
-        /* Update MD5 for files that need it */
-        if (calc_ref_md5 && ref_bytes > 0) {
-            MD5_Update(&ref_ctx, ref_buffer, ref_bytes);
-        }
-        if (calc_src_md5 && src_bytes > 0) {
-            MD5_Update(&src_ctx, src_buffer, src_bytes);
+        /* Update caches first (since we've already read the data) */
+        update_block_cache(ref_file, block_num, ref_buffer, ref_bytes);
+        update_block_cache(src_file, block_num, src_buffer, src_bytes);
+        
+        /* Bytewise comparison after cache building */
+        if (ref_bytes != src_bytes || memcmp(ref_buffer, src_buffer, ref_bytes) != 0) {
+            files_match = 0;
+            break; /* Exit early on mismatch */
         }
         
-        /* Compare bytes, until a mismatch has been found (then just generate MD5) */
-        if (files_match) {
-            if (ref_bytes != src_bytes || memcmp(ref_buffer, src_buffer, ref_bytes) != 0) {
-                files_match = 0;
-                // Don't break here - continue to read to end for MD5 calculation
-            }
-        }
+        block_num++;
+        
     } while (ref_bytes > 0);
-    
-    /* Finalize MD5 for files that needed it */
-    if (calc_ref_md5) {
-        MD5_Final(ref_file->md5, &ref_ctx);
-        ref_file->has_md5 = 1;
-    }
-    if (calc_src_md5) {
-        MD5_Final(src_file->md5, &src_ctx);
-        src_file->has_md5 = 1;
-    }
     
     fclose(ref_fp);
     fclose(src_fp);
     
-    return files_match;
+    return files_match ? MATCH_SUCCESS : MATCH_FAIL_BYTEWISE;
 }
 
 /*
@@ -185,10 +201,8 @@ static void collect_file_info(const char *ref_dir, const options_t *opts, int *c
             new_file->path = strdup(full_path);
             new_file->size = st.st_size;
 
-            /* MD5 will be calculated lazily during comparison */
-            memset(new_file->md5, 0, MD5_DIGEST_LENGTH);
-            new_file->needs_md5 = 0; /* Will be set later */
-            new_file->has_md5 = 0;   /* No MD5 calculated yet */
+            /* Initialize block cache */
+            init_block_cache(&new_file->block_cache);
             
             new_file->next = *head;
             *head = new_file;
@@ -252,7 +266,7 @@ static int sorted_file_info_add(sorted_file_info_t *list, file_info_t *file) {
  * MD5 is calculated lazily during the first comparison attempt.
  * Returns sorted_file_info_t structure with array of file_info_t pointers, or NULL on error.
  */
-sorted_file_info_t *scan_reference_directory(const options_t *opts) {
+sorted_file_info_t *scan_reference_directory(const options_t *opts, stats_t *stats) {
     file_info_t *head = NULL;
     file_info_t *current;
     sorted_file_info_t *sorted_files;
@@ -297,27 +311,22 @@ sorted_file_info_t *scan_reference_directory(const options_t *opts) {
     /* Sort once after all files are added */
     qsort(sorted_files->files, sorted_files->count, sizeof(file_info_t *), compare_file_info_size);
 
-    /* Mark files that need MD5 by checking for duplicate sizes in sorted array */
-    for (int i = 0; i < sorted_files->count; i++) {
-        file_info_t *file = sorted_files->files[i];
-        file->needs_md5 = 0; /* Default to not needing MD5 */
+    /* Calculate unique size statistics */
+    if (stats && sorted_files->count > 0) {
+        stats->total_ref_files = sorted_files->count;
+        stats->unique_ref_sizes = 1; /* First file always has a unique size relative to nothing */
         
-        /* Check if this file has the same size as the previous or next file */
-        if (i > 0 && file->size == sorted_files->files[i - 1]->size) {
-            file->needs_md5 = 1;
-            /* Also mark the previous file if not already marked */
-            if (!sorted_files->files[i - 1]->needs_md5) {
-                sorted_files->files[i - 1]->needs_md5 = 1;
+        for (int i = 1; i < sorted_files->count; i++) {
+            if (sorted_files->files[i]->size != sorted_files->files[i-1]->size) {
+                stats->unique_ref_sizes++;
             }
-        } else if (i + 1 < sorted_files->count && file->size == sorted_files->files[i + 1]->size) {
-            file->needs_md5 = 1;
         }
     }
     
     return sorted_files;
 }
 
-file_info_t *find_matching_file(sorted_file_info_t *ref_files, const char *src_file, const options_t *opts) {
+file_info_t *find_matching_file(sorted_file_info_t *ref_files, const char *src_file, const options_t *opts, stats_t *stats) {
     struct stat st;
 
     if (stat(src_file, &st) != 0) {
@@ -329,9 +338,7 @@ file_info_t *find_matching_file(sorted_file_info_t *ref_files, const char *src_f
     file_info_t src_info;
     src_info.path = (char *)src_file; /* Cast away const - we won't modify it */
     src_info.size = st.st_size;
-    memset(src_info.md5, 0, MD5_DIGEST_LENGTH);
-    src_info.needs_md5 = 0; /* Will be set based on reference files */
-    src_info.has_md5 = 0;
+    init_block_cache(&src_info.block_cache);
     src_info.next = NULL;
 
     /* Binary search for the first file with matching size */
@@ -350,6 +357,14 @@ file_info_t *find_matching_file(sorted_file_info_t *ref_files, const char *src_f
         }
     }
     
+    /* Track source file statistics */
+    if (stats) {
+        stats->total_source_files++;
+        if (first_match != -1) {
+            stats->files_with_size_matches++;
+        }
+    }
+    
     /* No files with matching size found */
     if (first_match == -1) {
         return NULL;
@@ -359,11 +374,30 @@ file_info_t *find_matching_file(sorted_file_info_t *ref_files, const char *src_f
     for (int i = first_match; i < ref_files->count && ref_files->files[i]->size == st.st_size; i++) {
         file_info_t *current = ref_files->files[i];
         
-        /* Set source file needs_md5 based on reference file */
-        src_info.needs_md5 = current->needs_md5;
-        
         /* Use our new files_match function */
-        if (files_match(current, &src_info)) {
+        match_result_t result = files_match(current, &src_info);
+        
+        /* Update statistics based on match result */
+        if (stats && result != MATCH_ERROR) {
+            stats->files_compared++;
+            
+            /* Track cache hits for fast rejections */
+            if (result == MATCH_FAIL_CACHED) {
+                stats->cache_hits++;
+            }
+            
+            /* Update cache depth statistics for all non-error results */
+            int cache_depth = current->block_cache.cached_blocks;
+            stats->total_cache_depth += cache_depth;
+            if (stats->files_compared == 1 || cache_depth < stats->min_cache_depth) {
+                stats->min_cache_depth = cache_depth;
+            }
+            if (cache_depth > stats->max_cache_depth) {
+                stats->max_cache_depth = cache_depth;
+            }
+        }
+        
+        if (result == MATCH_SUCCESS) {
             if (opts->verbose) {
                 printf("Match found: %s matches %s\n", src_file, current->path);
             }
@@ -381,6 +415,7 @@ void free_file_list(file_info_t *list) {
     while (current) {
         next = current->next;
         free(current->path);
+        free_block_cache(&current->block_cache);
         free(current);
         current = next;
     }
@@ -393,6 +428,7 @@ void free_sorted_file_info(sorted_file_info_t *sorted_files) {
     for (int i = 0; i < sorted_files->count; i++) {
         if (sorted_files->files[i]) {
             free(sorted_files->files[i]->path);
+            free_block_cache(&sorted_files->files[i]->block_cache);
             free(sorted_files->files[i]);
         }
     }
