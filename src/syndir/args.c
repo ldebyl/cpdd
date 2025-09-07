@@ -35,6 +35,11 @@ void print_usage(const char *program_name) {
     printf("  -f, --files COUNT     Number of files to generate (default: 100)\n");
     printf("  -d, --dirs COUNT      Number of directories to create (default: 10)\n");
     printf("  -p, --percent PCT     Percentage of source files that duplicate reference (0-100, default: 30)\n");
+    printf("  -i, --similarity VAL  Similarity factor for duplicates (0.0-1.0: 0=different, 1=identical, default: 1.0)\n");
+    printf("  -e, --exact-percent PCT   Percentage of duplicates that are exact copies (default: 40)\n");
+    printf("  -r, --prefix-percent PCT  Percentage of duplicates similar at start (default: 30)\n");
+    printf("  -u, --suffix-percent PCT  Percentage of duplicates similar at end (default: 20)\n");
+    printf("  -b, --size-buckets COUNT  Number of size buckets for forced collisions (0=normal distribution, default: 0)\n");
     printf("      --size-p50 SIZE   50th percentile file size in bytes (default: 4096)\n");
     printf("      --size-p95 SIZE   95th percentile file size in bytes (default: 65536)\n");
     printf("      --size-max SIZE   Maximum file size in bytes (default: 1048576)\n");
@@ -60,6 +65,11 @@ int parse_args(int argc, char *argv[], options_t *opts) {
         {"files",    required_argument, 0, 'f'},
         {"dirs",     required_argument, 0, 'd'},
         {"percent",  required_argument, 0, 'p'},
+        {"similarity", required_argument, 0, 'i'},
+        {"exact-percent", required_argument, 0, 'e'},
+        {"prefix-percent", required_argument, 0, 'r'},
+        {"suffix-percent", required_argument, 0, 'u'},
+        {"size-buckets", required_argument, 0, 'b'},
         {"size-p50", required_argument, 0, '5'},
         {"size-p95", required_argument, 0, '9'},
         {"size-max", required_argument, 0, 'm'},
@@ -75,6 +85,12 @@ int parse_args(int argc, char *argv[], options_t *opts) {
     opts->num_files = 100;
     opts->num_dirs = 10;
     opts->duplicate_percent = 30;
+    opts->similarity = 1.0;         /* Default: exact duplicates */
+    opts->exact_percent = 40;       /* 40% of duplicates are exact */
+    opts->prefix_percent = 30;      /* 30% of duplicates similar at start */
+    opts->suffix_percent = 20;      /* 20% of duplicates similar at end */
+    /* Remaining 10% will be random */
+    opts->size_buckets = 0;         /* Default: normal size distribution */
     opts->verbose = 0;
     opts->size_p50 = 4096;      /* Default: 4KB median */
     opts->size_p95 = 65536;     /* Default: 64KB 95th percentile */
@@ -82,7 +98,7 @@ int parse_args(int argc, char *argv[], options_t *opts) {
     opts->size_scale = 1.0;     /* Default: no scaling */
     opts->seed = (unsigned int)time(NULL); /* Default: current time */
     
-    while ((opt = getopt_long(argc, argv, "f:d:p:5:9:m:s:S:vh", long_options, &option_index)) != -1) {
+    while ((opt = getopt_long(argc, argv, "f:d:p:i:e:r:u:b:5:9:m:s:S:vh", long_options, &option_index)) != -1) {
         switch (opt) {
             case 'f':
                 opts->num_files = atoi(optarg);
@@ -102,6 +118,13 @@ int parse_args(int argc, char *argv[], options_t *opts) {
                 opts->duplicate_percent = atoi(optarg);
                 if (opts->duplicate_percent < 0 || opts->duplicate_percent > 100) {
                     fprintf(stderr, "Error: Duplicate percentage must be 0-100\n");
+                    return -1;
+                }
+                break;
+            case 'i':
+                opts->similarity = atof(optarg);
+                if (opts->similarity < 0.0 || opts->similarity > 1.0) {
+                    fprintf(stderr, "Error: Similarity must be 0.0-1.0\n");
                     return -1;
                 }
                 break;
@@ -133,6 +156,34 @@ int parse_args(int argc, char *argv[], options_t *opts) {
                     return -1;
                 }
                 break;
+            case 'e':
+                opts->exact_percent = atoi(optarg);
+                if (opts->exact_percent < 0 || opts->exact_percent > 100) {
+                    fprintf(stderr, "Error: Exact percentage must be 0-100\n");
+                    return -1;
+                }
+                break;
+            case 'r':
+                opts->prefix_percent = atoi(optarg);
+                if (opts->prefix_percent < 0 || opts->prefix_percent > 100) {
+                    fprintf(stderr, "Error: Prefix percentage must be 0-100\n");
+                    return -1;
+                }
+                break;
+            case 'u':
+                opts->suffix_percent = atoi(optarg);
+                if (opts->suffix_percent < 0 || opts->suffix_percent > 100) {
+                    fprintf(stderr, "Error: Suffix percentage must be 0-100\n");
+                    return -1;
+                }
+                break;
+            case 'b':
+                opts->size_buckets = atoi(optarg);
+                if (opts->size_buckets < 0) {
+                    fprintf(stderr, "Error: Size buckets must be non-negative\n");
+                    return -1;
+                }
+                break;
             case 'S':
                 opts->seed = (unsigned int)atoi(optarg);
                 break;
@@ -158,6 +209,14 @@ int parse_args(int argc, char *argv[], options_t *opts) {
     /* Validate size percentiles are in ascending order */
     if (opts->size_p50 > opts->size_p95 || opts->size_p95 > opts->size_p100) {
         fprintf(stderr, "Error: Size percentiles must be in ascending order (p50 <= p95 <= p100)\n");
+        return -1;
+    }
+    
+    /* Validate similarity percentages */
+    int total_percent = opts->exact_percent + opts->prefix_percent + opts->suffix_percent;
+    if (total_percent > 100) {
+        fprintf(stderr, "Error: Similarity percentages cannot exceed 100%% (exact=%d, prefix=%d, suffix=%d, total=%d)\n",
+                opts->exact_percent, opts->prefix_percent, opts->suffix_percent, total_percent);
         return -1;
     }
     

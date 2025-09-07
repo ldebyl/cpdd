@@ -28,6 +28,11 @@ typedef struct {
     int num_files;         /* Total number of files to generate */
     int num_dirs;          /* Number of subdirectories to create */
     int duplicate_percent; /* Percentage of files that should be duplicates */
+    double similarity;     /* Similarity factor (0.0-1.0): 0=completely different, 1=identical */
+    int exact_percent;     /* Percentage of duplicates that are exact copies */
+    int prefix_percent;    /* Percentage of duplicates similar at start */
+    int suffix_percent;    /* Percentage of duplicates similar at end */
+    int size_buckets;      /* Number of size buckets to force collisions (0=random sizes) */
     int verbose;           /* Verbose output */
     size_t size_p50;       /* 50th percentile file size (median) */
     size_t size_p95;       /* 95th percentile file size */
@@ -55,10 +60,20 @@ int create_source_directory(const char *root, int num_files, int num_dirs,
                            file_entry_t *ref_files, const options_t *opts);
 int create_directory_tree(const char *root, int num_dirs);
 
+/* Similarity patterns */
+typedef enum {
+    SIMILARITY_EXACT,   /* Perfect copy */
+    SIMILARITY_PREFIX,  /* Similar at start, different at end */
+    SIMILARITY_SUFFIX,  /* Different at start, similar at end */
+    SIMILARITY_RANDOM   /* Completely different */
+} similarity_pattern_t;
+
 /* Content generation utilities */
 char *generate_random_content(size_t size);
+char *generate_similar_content(const char *base_content, size_t size, double similarity, similarity_pattern_t pattern);
 char *generate_random_filename(const char *prefix);
 size_t generate_file_size(size_t p50, size_t p95, size_t p100);
+size_t generate_bucketed_size(size_t p50, size_t p95, size_t p100, int num_buckets);
 
 /* Memory management and utilities */
 void free_file_list(file_entry_t *list);

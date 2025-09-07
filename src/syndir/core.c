@@ -67,6 +67,31 @@ size_t generate_file_size(size_t p50, size_t p95, size_t p100)
     return (size_t)size_d;
 }
 
+size_t generate_bucketed_size(size_t p50, size_t p95, size_t p100, int num_buckets)
+{
+    if (num_buckets <= 0) {
+        /* Fall back to normal distribution */
+        return generate_file_size(p50, p95, p100);
+    }
+    
+    /* Create size buckets between p50 and p100 */
+    size_t min_size = p50;
+    size_t max_size = p100;
+    size_t range = max_size - min_size;
+    
+    /* Pick a random bucket */
+    int bucket = rand() % num_buckets;
+    
+    /* Calculate size for this bucket */
+    size_t bucket_size = min_size + (bucket * range) / num_buckets;
+    
+    /* Ensure bounds */
+    if (bucket_size < MIN_CONTENT_SIZE) bucket_size = MIN_CONTENT_SIZE;
+    if (bucket_size > max_size) bucket_size = max_size;
+    
+    return bucket_size;
+}
+
 char *generate_random_content(size_t size)
 {
     static const char charset[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 \n\t.,!?-_";
@@ -89,6 +114,75 @@ char *generate_random_content(size_t size)
     }
     content[size] = '\0';
 
+    return content;
+}
+
+char *generate_similar_content(const char *base_content, size_t size, double similarity, similarity_pattern_t pattern)
+{
+    if (!base_content || similarity < 0.0 || similarity > 1.0)
+        return NULL;
+    
+    static const char charset[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 \n\t.,!?-_";
+    static const size_t charset_size = sizeof(charset) - 1;
+    
+    char *content = malloc(size + 1);
+    if (!content) return NULL;
+    
+    switch (pattern) {
+        case SIMILARITY_EXACT:
+            /* Perfect copy regardless of similarity value */
+            memcpy(content, base_content, size);
+            break;
+            
+        case SIMILARITY_PREFIX:
+            /* Keep first similarity% identical, randomize the rest */
+            if (similarity >= 1.0) {
+                memcpy(content, base_content, size);
+            } else if (similarity <= 0.0) {
+                /* Generate completely random */
+                for (size_t i = 0; i < size; i++) {
+                    content[i] = charset[rand() % charset_size];
+                }
+            } else {
+                size_t keep_bytes = (size_t)(similarity * size);
+                memcpy(content, base_content, keep_bytes);
+                for (size_t i = keep_bytes; i < size; i++) {
+                    content[i] = charset[rand() % charset_size];
+                }
+            }
+            break;
+            
+        case SIMILARITY_SUFFIX:
+            /* Keep last similarity% identical, randomize the beginning */
+            if (similarity >= 1.0) {
+                memcpy(content, base_content, size);
+            } else if (similarity <= 0.0) {
+                /* Generate completely random */
+                for (size_t i = 0; i < size; i++) {
+                    content[i] = charset[rand() % charset_size];
+                }
+            } else {
+                size_t keep_bytes = (size_t)(similarity * size);
+                size_t random_bytes = size - keep_bytes;
+                /* Generate random content for beginning */
+                for (size_t i = 0; i < random_bytes; i++) {
+                    content[i] = charset[rand() % charset_size];
+                }
+                /* Copy similar content for end */
+                memcpy(content + random_bytes, base_content + random_bytes, keep_bytes);
+            }
+            break;
+            
+        case SIMILARITY_RANDOM:
+        default:
+            /* Generate completely random content */
+            for (size_t i = 0; i < size; i++) {
+                content[i] = charset[rand() % charset_size];
+            }
+            break;
+    }
+    
+    content[size] = '\0';
     return content;
 }
 
@@ -202,10 +296,19 @@ int create_reference_directory(const char *root, int num_files, int num_dirs,
 
         snprintf(full_path, sizeof(full_path), "%s/%s", dir, filename);
 
-        size_t content_size = generate_file_size(
-            (size_t)(opts->size_p50 * opts->size_scale),
-            (size_t)(opts->size_p95 * opts->size_scale),
-            (size_t)(opts->size_p100 * opts->size_scale));
+        size_t content_size;
+        if (opts->size_buckets > 0) {
+            content_size = generate_bucketed_size(
+                (size_t)(opts->size_p50 * opts->size_scale),
+                (size_t)(opts->size_p95 * opts->size_scale),
+                (size_t)(opts->size_p100 * opts->size_scale),
+                opts->size_buckets);
+        } else {
+            content_size = generate_file_size(
+                (size_t)(opts->size_p50 * opts->size_scale),
+                (size_t)(opts->size_p95 * opts->size_scale),
+                (size_t)(opts->size_p100 * opts->size_scale));
+        }
         char *content = generate_random_content(content_size);
 
         entry->path = strdup(full_path);
@@ -321,20 +424,85 @@ int create_source_directory(const char *root, int num_files, int num_dirs,
 
             if (selected_ref)
             {
-                // Debugging output to verify reference file selection
-                if (opts->verbose)
-                {
-                    printf("  Duplicating file: %s -> %s\n", selected_ref->path, full_path);
+                // Determine similarity pattern based on distribution percentages
+                similarity_pattern_t pattern;
+                int pattern_rand = rand() % 100;
+                
+                if (pattern_rand < opts->exact_percent) {
+                    pattern = SIMILARITY_EXACT;
+                } else if (pattern_rand < opts->exact_percent + opts->prefix_percent) {
+                    pattern = SIMILARITY_PREFIX;
+                } else if (pattern_rand < opts->exact_percent + opts->prefix_percent + opts->suffix_percent) {
+                    pattern = SIMILARITY_SUFFIX;
+                } else {
+                    pattern = SIMILARITY_RANDOM;
                 }
+                
+                // Determine final size with some variation to create more realistic test scenarios
+                size_t final_size = selected_ref->content_size;
+                int size_variation = rand() % 3; // 0=same size, 1=truncate, 2=pad
+                
+                if (size_variation == 1) {
+                    // Truncate by 10-30%
+                    double truncate_factor = 0.1 + (rand() % 21) / 100.0; // 0.1 to 0.3
+                    final_size = (size_t)(final_size * (1.0 - truncate_factor));
+                    if (final_size < MIN_CONTENT_SIZE) final_size = MIN_CONTENT_SIZE;
+                } else if (size_variation == 2) {
+                    // Pad by 10-30%
+                    double pad_factor = 0.1 + (rand() % 21) / 100.0; // 0.1 to 0.3
+                    final_size = (size_t)(final_size * (1.0 + pad_factor));
+                }
+                
+                // Generate similar content based on pattern
+                char *similar_content = generate_similar_content(selected_ref->content, 
+                                                               selected_ref->content_size, 
+                                                               opts->similarity,
+                                                               pattern);
+                
+                if (similar_content) {
+                    // Adjust content size if needed
+                    if (final_size != selected_ref->content_size) {
+                        char *adjusted_content = malloc(final_size + 1);
+                        if (adjusted_content) {
+                            if (final_size < selected_ref->content_size) {
+                                // Truncate
+                                memcpy(adjusted_content, similar_content, final_size);
+                            } else {
+                                // Pad with random data
+                                memcpy(adjusted_content, similar_content, selected_ref->content_size);
+                                // Fill the rest with random content
+                                char *padding = generate_random_content(final_size - selected_ref->content_size);
+                                if (padding) {
+                                    memcpy(adjusted_content + selected_ref->content_size, padding, 
+                                           final_size - selected_ref->content_size);
+                                    free(padding);
+                                }
+                            }
+                            adjusted_content[final_size] = '\0';
+                            free(similar_content);
+                            similar_content = adjusted_content;
+                        }
+                    }
+                    // Debugging output to verify reference file selection
+                    if (opts->verbose)
+                    {
+                        const char *pattern_names[] = {"exact", "prefix", "suffix", "random"};
+                        printf("  Creating similar file (%s pattern, %.1f%% similarity): %s -> %s\n", 
+                               pattern_names[pattern], opts->similarity * 100.0, selected_ref->path, full_path);
+                    }
 
-                // Write the content of the reference file to the new file
-                fwrite(selected_ref->content, 1, selected_ref->content_size, f);
-                duplicates_created++;
+                    // Write the similar content to the new file
+                    fwrite(similar_content, 1, final_size, f);
+                    free(similar_content);
+                    duplicates_created++;
 
-                if (opts->verbose)
-                {
-                    printf("  Created duplicate: %s (%zu bytes)\n",
-                           full_path, selected_ref->content_size);
+                    if (opts->verbose)
+                    {
+                        printf("  Created similar file: %s (%zu bytes)\n",
+                               full_path, final_size);
+                    }
+                } else {
+                    fprintf(stderr, "Error: Failed to generate similar content\n");
                 }
             }
             else
@@ -345,10 +513,19 @@ int create_source_directory(const char *root, int num_files, int num_dirs,
         else
         {
             // Create a completely new file with random content
-            size_t content_size = generate_file_size(
-                (size_t)(opts->size_p50 * opts->size_scale),
-                (size_t)(opts->size_p95 * opts->size_scale),
-                (size_t)(opts->size_p100 * opts->size_scale));
+            size_t content_size;
+            if (opts->size_buckets > 0) {
+                content_size = generate_bucketed_size(
+                    (size_t)(opts->size_p50 * opts->size_scale),
+                    (size_t)(opts->size_p95 * opts->size_scale),
+                    (size_t)(opts->size_p100 * opts->size_scale),
+                    opts->size_buckets);
+            } else {
+                content_size = generate_file_size(
+                    (size_t)(opts->size_p50 * opts->size_scale),
+                    (size_t)(opts->size_p95 * opts->size_scale),
+                    (size_t)(opts->size_p100 * opts->size_scale));
+            }
             char *content = generate_random_content(content_size);
 
             fwrite(content, 1, content_size, f);
