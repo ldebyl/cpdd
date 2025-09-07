@@ -563,15 +563,8 @@ int create_source_directory(const char *root, int num_files, int num_dirs,
     if (opts->verbose == 0) {
         clear_status_line();
     }
-    
-    if (opts->verbose)
-    {
-        printf("Completed: %d duplicates out of %d files (%.1f%%)\n",
-               duplicates_created, num_files,
-               (float)duplicates_created / num_files * 100);
-    }
 
-    return 0;
+    return duplicates_created;
 }
 
 int generate_test_data(const options_t *opts)
@@ -582,10 +575,7 @@ int generate_test_data(const options_t *opts)
     rand_seed = opts->seed;
     srand(rand_seed);
 
-    if (opts->verbose)
-    {
-        printf("Test data generation started (seed: %u)\n", rand_seed);
-    }
+    printf("Generating test data (seed: %u)\n", rand_seed);
 
     if (create_reference_directory(opts->ref_root, opts->num_files, opts->num_dirs,
                                    &ref_files, opts) != 0)
@@ -593,8 +583,9 @@ int generate_test_data(const options_t *opts)
         return -1;
     }
 
-    if (create_source_directory(opts->src_root, opts->num_files, opts->num_dirs,
-                                ref_files, opts) != 0)
+    int duplicates_created = create_source_directory(opts->src_root, opts->num_files, opts->num_dirs,
+                                                    ref_files, opts);
+    if (duplicates_created < 0)
     {
         free_file_list(ref_files);
         return -1;
@@ -602,10 +593,23 @@ int generate_test_data(const options_t *opts)
 
     free_file_list(ref_files);
 
-    if (opts->verbose)
-    {
-        printf("Test data generation completed successfully\n");
+    /* Print final summary */
+    printf("\nSyndir Summary:\n");
+    printf("  Reference files:  %d\n", opts->num_files);
+    printf("  Source files:     %d\n", opts->num_files);
+    printf("  Duplicates:       %d (%.1f%%)\n", duplicates_created,
+           (float)duplicates_created / opts->num_files * 100);
+    printf("  Unique files:     %d\n", opts->num_files - duplicates_created);
+    printf("  Directories:      %d per tree\n", opts->num_dirs);
+    
+    if (opts->size_buckets > 0) {
+        printf("  Size buckets:     %d (p50=%zu, p95=%zu, max=%zu)\n", 
+               opts->size_buckets, opts->size_p50, opts->size_p95, opts->size_p100);
     }
+    
+    printf("  Similarity:       %.0f%% (exact=%d%%, prefix=%d%%, suffix=%d%%)\n",
+           opts->similarity * 100, opts->exact_percent, opts->prefix_percent, opts->suffix_percent);
+    printf("  Seed:             %u\n", opts->seed);
 
     return 0;
 }
