@@ -66,19 +66,26 @@ void cleanup_incomplete_file(void) {
     }
 }
 
-/* Determines whether a destination file should be overwritten,
- * by firstly determining if the destination exists, whether the
- * user has specified --no-clobber, and optionally interactively
- * asking */
-int should_overwrite(const char *dest_path, const options_t *opts) {
-    struct stat st;
+/* Given source and destination files, determine if destination should be overwritten
+ * by checking if destination exists, user preferences for --no-clobber, --update,
+ * and optionally asking interactively */
+int should_overwrite(const char *src_path, const char *dest_path, const options_t *opts) {
+    struct stat dest_st, src_st;
     
-    if (stat(dest_path, &st) != 0) {
-        return 1;
+    if (stat(dest_path, &dest_st) != 0) {
+        return 1; /* Destination doesn't exist, safe to copy */
     }
     
     if (opts->no_clobber) {
         return 0;
+    }
+    
+    if (opts->update) {
+        if (stat(src_path, &src_st) != 0) {
+            return 0; /* Can't stat source, don't overwrite */
+        }
+        /* Only overwrite if source is newer than destination */
+        return (src_st.st_mtime > dest_st.st_mtime);
     }
     
     if (opts->interactive) {
@@ -92,7 +99,7 @@ int should_overwrite(const char *dest_path, const options_t *opts) {
         return 0;
     }
     
-    return 1;
+    return 1; /* Default: overwrite */
 }
 
 /* Given a source and destination, propagates attributes between them */
@@ -278,8 +285,6 @@ int copy_or_link_file(const char *src, const char *dest, const char *ref, const 
     
     if (ref && opts->link_type != LINK_NONE) {
         struct stat ref_st;
-        /* Remove destination file if it exists, since we've already decided to overwrite */
-        unlink(dest);
         
         /* Get the size of the reference file - use stat() to follow symlinks */
         if (stat(ref, &ref_st) != 0) {
@@ -288,7 +293,21 @@ int copy_or_link_file(const char *src, const char *dest, const char *ref, const 
                 printf("Warning: Could not stat reference file %s\n", ref);
             }
         } else {
-
+            if (opts->dry_run) {
+                /* Dry run: just update stats, don't create links */
+                if (opts->link_type == LINK_HARD) {
+                    stats->files_hard_linked++;
+                    stats->bytes_hard_linked += src_st.st_size;
+                } else {
+                    stats->files_soft_linked++;
+                    stats->bytes_soft_linked += src_st.st_size;
+                }
+                return 0;
+            }
+            
+            /* Remove destination file if it exists, since we've already decided to overwrite */
+            unlink(dest);
+            
             if (opts->link_type == LINK_HARD) {
                 if (link(ref, dest) == 0) {
                     stats->files_hard_linked++;
@@ -311,6 +330,13 @@ int copy_or_link_file(const char *src, const char *dest, const char *ref, const 
                 }
             }
         }
+    }
+    
+    /* Dry run: just update stats for regular copy */
+    if (opts->dry_run) {
+        stats->files_copied++;
+        stats->bytes_copied += src_st.st_size;
+        return 0;
     }
     
     // Open source file for reading
@@ -416,7 +442,7 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
         } else if (S_ISREG(st.st_mode)) {
             matching_file = NULL;
             
-            if (!should_overwrite(dest_full, opts)) {
+            if (!should_overwrite(src_full, dest_full, opts)) {
                 if (opts->verbose) {
                     printf("skipping '%s' (not overwriting)\n", dest_full);
                 }
@@ -442,12 +468,13 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
             }
             
             if (opts->verbose) {
+                const char *dry_run_prefix = opts->dry_run ? "[DRY RUN] " : "";
                 if (matching_file) {
-                    printf("%s -> %s (%s to %s)\n", src_full, dest_full,
+                    printf("%s%s -> %s (%s to %s)\n", dry_run_prefix, src_full, dest_full,
                            opts->link_type == LINK_HARD ? "hard link" : "soft link",
                            matching_file->path);
                 } else {
-                    printf("%s -> %s (copied)\n", src_full, dest_full);
+                    printf("%s%s -> %s (copied)\n", dry_run_prefix, src_full, dest_full);
                 }
             }
             
@@ -541,7 +568,7 @@ int copy_directory(const options_t *opts, stats_t *stats) {
         } else {
             file_info_t *matching_file = NULL;
             
-            if (!should_overwrite(dest_path, opts)) {
+            if (!should_overwrite(src_path, dest_path, opts)) {
                 if (opts->verbose) {
                     printf("skipping '%s' (not overwriting)\n", dest_path);
                 }
@@ -570,12 +597,13 @@ int copy_directory(const options_t *opts, stats_t *stats) {
             }
             
             if (opts->verbose) {
+                const char *dry_run_prefix = opts->dry_run ? "[DRY RUN] " : "";
                 if (matching_file) {
-                    printf("%s -> %s (%s to %s)\n", src_path, dest_path,
+                    printf("%s%s -> %s (%s to %s)\n", dry_run_prefix, src_path, dest_path,
                            opts->link_type == LINK_HARD ? "hard link" : "soft link",
                            matching_file->path);
                 } else {
-                    printf("%s -> %s (copied)\n", src_path, dest_path);
+                    printf("%s%s -> %s (copied)\n", dry_run_prefix, src_path, dest_path);
                 }
             }
             

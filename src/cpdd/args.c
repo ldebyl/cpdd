@@ -71,6 +71,8 @@ void print_usage(const char *program_name) {
     printf("  -R, --recursive        Copy directories recursively\n");
     printf("  -n, --no-clobber       Never overwrite existing files\n");
     printf("  -i, --interactive      Prompt before overwrite\n");
+    printf("  -u, --update           Overwrite only if source is newer than destination\n");
+    printf("  --dry-run              Show what would be done without actually doing it\n");
     printf("  -p                     Same as --preserve=mode,ownership,timestamps\n");
     printf("  --preserve[=ATTR_LIST] Preserve the specified attributes\n");
     printf("                           (default: mode,ownership,timestamps)\n");
@@ -103,6 +105,8 @@ int parse_args(int argc, char *argv[], options_t *opts) {
         {"recursive",     no_argument,       0, 'R'},
         {"no-clobber",    no_argument,       0, 'n'},
         {"interactive",   no_argument,       0, 'i'},
+        {"update",        no_argument,       0, 'u'},
+        {"dry-run",       no_argument,       0, 'D'},
         {"preserve",      optional_argument, 0, 'P'},
         {"stats",         no_argument,       0, 'S'},
         {"human-readable", no_argument,      0, 'h'},
@@ -121,6 +125,8 @@ int parse_args(int argc, char *argv[], options_t *opts) {
     opts->recursive = 0;
     opts->no_clobber = 0;
     opts->interactive = 0;
+    opts->update = 0;
+    opts->dry_run = 0;
     opts->show_stats = 0;
     opts->human_readable = 0;
     opts->preserve.mode = 0;
@@ -128,7 +134,7 @@ int parse_args(int argc, char *argv[], options_t *opts) {
     opts->preserve.timestamps = 0;
     opts->preserve.all = 0;
     
-    while ((opt = getopt_long(argc, argv, "r:LsRnipvhSH", long_options, &option_index)) != -1) {
+    while ((opt = getopt_long(argc, argv, "r:LsRniupvhSH", long_options, &option_index)) != -1) {
         switch (opt) {
             case 'r': {
                 opts->ref_dir_count++;
@@ -159,18 +165,28 @@ int parse_args(int argc, char *argv[], options_t *opts) {
                 opts->recursive = 1;
                 break;
             case 'n':
-                if (opts->interactive) {
-                    fprintf(stderr, "Error: Cannot specify both --no-clobber and --interactive\n");
+                if (opts->interactive || opts->update) {
+                    fprintf(stderr, "Error: Cannot specify both --no-clobber and other overwrite options\n");
                     return -1;
                 }
                 opts->no_clobber = 1;
                 break;
             case 'i':
-                if (opts->no_clobber) {
-                    fprintf(stderr, "Error: Cannot specify both --no-clobber and --interactive\n");
+                if (opts->no_clobber || opts->update) {
+                    fprintf(stderr, "Error: Cannot specify both --interactive and other overwrite options\n");
                     return -1;
                 }
                 opts->interactive = 1;
+                break;
+            case 'u':
+                if (opts->no_clobber || opts->interactive) {
+                    fprintf(stderr, "Error: Cannot specify both --update and other overwrite options\n");
+                    return -1;
+                }
+                opts->update = 1;
+                break;
+            case 'D':
+                opts->dry_run = 1;
                 break;
             case 'p':
                 opts->preserve.mode = 1;

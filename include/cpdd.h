@@ -106,6 +106,8 @@ typedef struct {
     int recursive;          /* Recursive directory traversal */
     int no_clobber;         /* Don't overwrite existing files */
     int interactive;        /* Prompt before overwriting */
+    int update;             /* Overwrite only if source is newer */
+    int dry_run;            /* Show what would be done without doing it */
     int show_stats;         /* Display operation statistics */
     int human_readable;     /* Human-readable byte counts */
     preserve_t preserve;    /* Attributes to preserve */
@@ -152,7 +154,7 @@ void free_block_cache(block_cache_t *cache);
 
 /* File operations */
 int copy_or_link_file(const char *src, const char *dest, const char *ref, const options_t *opts, stats_t *stats);
-int should_overwrite(const char *dest_path, const options_t *opts);
+int should_overwrite(const char *src_path, const char *dest_path, const options_t *opts);
 int preserve_file_attributes(const char *src, const char *dest, const preserve_t *preserve);
 int parse_preserve_list(const char *preserve_list, preserve_t *preserve);
 
