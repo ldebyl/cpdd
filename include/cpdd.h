@@ -158,6 +158,12 @@ int should_overwrite(const char *src_path, const char *dest_path, const options_
 int preserve_file_attributes(const char *src, const char *dest, const preserve_t *preserve);
 int parse_preserve_list(const char *preserve_list, preserve_t *preserve);
 
+/* File operation wrappers */
+static int file_unlink(const char *path, const options_t *opts);
+static int file_link(const char *oldpath, const char *newpath, const options_t *opts);
+static int file_symlink(const char *target, const char *linkpath, const options_t *opts);
+static int file_copy(const char *src, const char *dest, const options_t *opts, struct stat *src_st);
+
 /* Statistics and output formatting */
 void format_bytes(off_t bytes, int human_readable, char *buffer, size_t buffer_size);
 void format_stats_line(const stats_t *stats, int human_readable, char *buffer, size_t buffer_size);

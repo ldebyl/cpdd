@@ -40,6 +40,13 @@ OPTIONS
        -i, --interactive
               Prompt before overwriting existing files.
 
+       -u, --update
+              Overwrite only if source file is newer than destination file.
+
+       --dry-run
+              Show what would be done without actually performing any file op-
+              erations. Useful for testing commands before execution.
+
        -p     Preserve  file  attributes (equivalent to --preserve=mode,owner-
               ship,timestamps).
 
@@ -85,6 +92,12 @@ EXAMPLES
        Interactive copy preserving attributes:
               cpdd -i -p -R src/ dest/
 
+       Dry run to preview operations:
+              cpdd --dry-run -v -R source/ /dest/
+
+       Update only newer files:
+              cpdd -u --stats source/ /dest/
+
 FILE MATCHING ALGORITHM
        cpdd uses a three-stage matching process for efficient deduplication:
 
@@ -113,6 +126,13 @@ NOTES
        Symbolic  links  contain  the  path  to  the  target  file and can span
        filesystems, but may break if  the  reference  directory  is  moved  or
        deleted.
+
+       The overwrite options --no-clobber, --interactive, and --update are mu-
+       tually exclusive and cannot be combined in a single command.
+
+       When using --dry-run, verbose output will show [DRY RUN] prefix to in-
+       dicate operations that would be performed. Statistics will reflect what
+       would happen without actually modifying files.
 
 BUGS
        Report bugs at: https://github.com/32kb-net/cpdd/issues

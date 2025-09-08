@@ -27,6 +27,78 @@
 // Path of the file currently being copied (for cleanup on signal)
 static char *current_incomplete_file = NULL;
 
+/* File operation wrappers that handle dry run */
+static int file_unlink(const char *path, const options_t *opts) {
+    if (opts->dry_run) {
+        return 0;  /* Pretend success */
+    }
+    return unlink(path);
+}
+
+static int file_link(const char *oldpath, const char *newpath, const options_t *opts) {
+    if (opts->dry_run) {
+        return 0;  /* Pretend success */
+    }
+    return link(oldpath, newpath);
+}
+
+static int file_symlink(const char *target, const char *linkpath, const options_t *opts) {
+    if (opts->dry_run) {
+        return 0;  /* Pretend success */
+    }
+    return symlink(target, linkpath);
+}
+
+static int file_copy(const char *src, const char *dest, const options_t *opts, struct stat *src_st) {
+    if (opts->dry_run) {
+        return src_st->st_size;  /* Return bytes that would be copied */
+    }
+    
+    /* Actual file copy implementation */
+    int src_fd, dest_fd;
+    char buffer[BUFFER_SIZE];
+    ssize_t bytes_read, bytes_written;
+    
+    // Open source file for reading
+    src_fd = open(src, O_RDONLY);
+    if (src_fd < 0) {
+        return -1;
+    }
+
+    // Open destination file for writing (create/truncate)
+    dest_fd = open(dest, O_WRONLY | O_CREAT | O_TRUNC, src_st->st_mode);
+    if (dest_fd < 0) {
+        close(src_fd);
+        return -1;
+    }
+    
+    // Register the incomplete file for cleanup on signals
+    register_incomplete_file(dest);
+    
+    // Perform the copy
+    while ((bytes_read = read(src_fd, buffer, BUFFER_SIZE)) > 0) {
+        bytes_written = write(dest_fd, buffer, bytes_read);
+        if (bytes_written != bytes_read) {
+            close(src_fd);
+            close(dest_fd);
+            cleanup_incomplete_file();
+            return -1;
+        }
+    }
+    
+    close(src_fd);
+    close(dest_fd);
+    
+    // Unregister the incomplete file since copy succeeded
+    unregister_incomplete_file();
+    
+    if (bytes_read < 0) {
+        return -1;
+    }
+    
+    return src_st->st_size;  /* Return bytes copied */
+}
+
 // Signal handler to clean up incomplete file on termination
 static void signal_handler(int sig) {
     cleanup_incomplete_file();
@@ -275,9 +347,6 @@ int create_directory_structure(const char *src_path, const char *dest_path) {
 // Copies a file from src to dest, optionally creating a hard or soft link
 int copy_or_link_file(const char *src, const char *dest, const char *ref, const options_t *opts, stats_t *stats) {
     struct stat src_st;
-    int src_fd, dest_fd;
-    char buffer[BUFFER_SIZE];
-    ssize_t bytes_read, bytes_written;
     
     if (stat(src, &src_st) != 0) {
         return -1;
@@ -293,23 +362,12 @@ int copy_or_link_file(const char *src, const char *dest, const char *ref, const 
                 printf("Warning: Could not stat reference file %s\n", ref);
             }
         } else {
-            if (opts->dry_run) {
-                /* Dry run: just update stats, don't create links */
-                if (opts->link_type == LINK_HARD) {
-                    stats->files_hard_linked++;
-                    stats->bytes_hard_linked += src_st.st_size;
-                } else {
-                    stats->files_soft_linked++;
-                    stats->bytes_soft_linked += src_st.st_size;
-                }
-                return 0;
-            }
             
             /* Remove destination file if it exists, since we've already decided to overwrite */
-            unlink(dest);
+            file_unlink(dest, opts);
             
             if (opts->link_type == LINK_HARD) {
-                if (link(ref, dest) == 0) {
+                if (file_link(ref, dest, opts) == 0) {
                     stats->files_hard_linked++;
                     stats->bytes_hard_linked += src_st.st_size;
                     return 0;
@@ -319,7 +377,7 @@ int copy_or_link_file(const char *src, const char *dest, const char *ref, const 
                     }
                 }
             } else if (opts->link_type == LINK_SOFT) {
-                if (symlink(ref, dest) == 0) {
+                if (file_symlink(ref, dest, opts) == 0) {
                     stats->files_soft_linked++;
                     stats->bytes_soft_linked += src_st.st_size;
                     return 0;
@@ -332,48 +390,17 @@ int copy_or_link_file(const char *src, const char *dest, const char *ref, const 
         }
     }
     
-    /* Dry run: just update stats for regular copy */
-    if (opts->dry_run) {
-        stats->files_copied++;
-        stats->bytes_copied += src_st.st_size;
-        return 0;
-    }
-    
-    // Open source file for reading
-    src_fd = open(src, O_RDONLY);
-    if (src_fd < 0) {
-        return -1;
-    }
-
-    // Open destination file for writing (create/truncate)
-    dest_fd = open(dest, O_WRONLY | O_CREAT | O_TRUNC, src_st.st_mode);
-    if (dest_fd < 0) {
-        close(src_fd);
+    /* Copy the file using our wrapper function */
+    int bytes_copied = file_copy(src, dest, opts, &src_st);
+    if (bytes_copied < 0) {
         return -1;
     }
     
-    // Register the incomplete file for cleanup on signals
-    register_incomplete_file(dest);
+    /* Update stats */
+    stats->files_copied++;
+    stats->bytes_copied += bytes_copied;
     
-    // Perform the copy
-    while ((bytes_read = read(src_fd, buffer, BUFFER_SIZE)) > 0) {
-        bytes_written = write(dest_fd, buffer, bytes_read);
-        if (bytes_written != bytes_read) {
-            close(src_fd);
-            close(dest_fd);
-            cleanup_incomplete_file();
-            return -1;
-        }
-    }
-    
-    close(src_fd);
-    close(dest_fd);
-    
-    if (bytes_read < 0) {
-        cleanup_incomplete_file();
-        return -1;
-    }
-    
+    /* Preserve attributes if requested */
     if (opts->preserve.mode || opts->preserve.ownership || opts->preserve.timestamps) {
         if (preserve_file_attributes(src, dest, &opts->preserve) != 0) {
             if (opts->verbose) {
@@ -381,11 +408,6 @@ int copy_or_link_file(const char *src, const char *dest, const char *ref, const 
             }
         }
     }
-    
-    stats->files_copied++;
-    stats->bytes_copied += src_st.st_size;
-    
-    unregister_incomplete_file();
     
     return 0;
 }
