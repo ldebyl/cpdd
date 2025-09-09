@@ -153,7 +153,7 @@ int grow_hash_chain(hash_chain_t *cache);
 void free_hash_chain(hash_chain_t *cache);
 
 /* File operations */
-int copy_or_link_file(const char *src, const char *dest, const char *ref, const options_t *opts, stats_t *stats);
+int copy_or_link_file(const char *src, const char *dest, sorted_file_info_t *ref_files, const options_t *opts, stats_t *stats);
 int should_overwrite(const char *src_path, const char *dest_path, const options_t *opts);
 int preserve_file_attributes(const char *src, const char *dest, const preserve_t *preserve);
 int parse_preserve_list(const char *preserve_list, preserve_t *preserve);

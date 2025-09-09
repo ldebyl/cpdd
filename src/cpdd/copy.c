@@ -377,51 +377,84 @@ int create_directory_structure(const char *src_path, const char *dest_path, cons
 }
 
 // Copies a file from src to dest, optionally creating a hard or soft link
-int copy_or_link_file(const char *src, const char *dest, const char *ref, const options_t *opts, stats_t *stats) {
+int copy_or_link_file(const char *src, const char *dest, sorted_file_info_t *ref_files, const options_t *opts, stats_t *stats) {
     struct stat src_st;
+    file_info_t *matching_file = NULL;
     
     if (stat(src, &src_st) != 0) {
         return -1;
     }
     
-    if (ref && opts->link_type != LINK_NONE) {
+    /* Check if we should overwrite */
+    if (!should_overwrite(src, dest, opts)) {
+        if (opts->verbose) {
+            printf("skipping '%s' (not overwriting)\n", dest);
+        }
+        stats->files_skipped++;
+        return 0;
+    }
+    
+    /* Find matching reference file if available */
+    if (ref_files) {
+        matching_file = find_matching_file(ref_files, src, opts, stats);
+        if (opts->verbose && matching_file) {
+            printf("Found matching reference file for %s: %s\n", src, matching_file->path);
+        }
+    }
+    
+    /* Ensure destination directory exists */
+    if (create_directory_structure(src, dest, opts) != 0) {
+        return -1;
+    }
+    
+    /* Try to create a link to reference file if we found a match */
+    if (matching_file && opts->link_type != LINK_NONE) {
         struct stat ref_st;
         
-        /* Get the size of the reference file - use stat() to follow symlinks */
-        if (stat(ref, &ref_st) != 0) {
-            /* If we can't stat the reference file, fall through to regular copy */
+        /* Get the size of the reference file */
+        if (stat(matching_file->path, &ref_st) != 0) {
             if (opts->verbose) {
-                printf("Warning: Could not stat reference file %s\n", ref);
+                printf("Warning: Could not stat reference file %s\n", matching_file->path);
             }
         } else {
-            
-            /* Remove destination file if it exists, since we've already decided to overwrite */
+            /* Remove destination file if it exists */
             file_unlink(dest, opts);
             
             if (opts->link_type == LINK_HARD) {
-                if (file_link(ref, dest, opts) == 0) {
+                if (file_link(matching_file->path, dest, opts) == 0) {
                     stats->files_hard_linked++;
                     stats->bytes_hard_linked += src_st.st_size;
+                    
+                    if (opts->verbose) {
+                        const char *dry_run_prefix = opts->dry_run ? "[DRY RUN] " : "";
+                        printf("%s%s -> %s (hard link to %s)\n", dry_run_prefix, src, dest, matching_file->path);
+                    }
                     return 0;
                 } else {
                     if (opts->verbose) {
-                        printf("Failed to create hard link for %s -> %s: %s\n", ref, dest, strerror(errno));
+                        printf("Failed to create hard link for %s -> %s: %s\n", matching_file->path, dest, strerror(errno));
                     }
                 }
             } else if (opts->link_type == LINK_SOFT) {
-                if (file_symlink(ref, dest, opts) == 0) {
+                if (file_symlink(matching_file->path, dest, opts) == 0) {
                     stats->files_soft_linked++;
                     stats->bytes_soft_linked += src_st.st_size;
+                    
+                    if (opts->verbose) {
+                        const char *dry_run_prefix = opts->dry_run ? "[DRY RUN] " : "";
+                        printf("%s%s -> %s (soft link to %s)\n", dry_run_prefix, src, dest, matching_file->path);
+                    }
                     return 0;
                 } else {
                     if (opts->verbose) {
-                        printf("Failed to create soft link for %s -> %s: %s\n", ref, dest, strerror(errno));
+                        printf("Failed to create soft link for %s -> %s: %s\n", matching_file->path, dest, strerror(errno));
                     }
                 }
             }
         }
     }
     
+    /* Fall back to regular copy */
     int bytes_copied = file_copy(src, dest, opts, &src_st);
     if (bytes_copied < 0) {
         return -1;
@@ -439,6 +472,11 @@ int copy_or_link_file(const char *src, const char *dest, const char *ref, const 
         }
     }
     
+    if (opts->verbose) {
+        const char *dry_run_prefix = opts->dry_run ? "[DRY RUN] " : "";
+        printf("%s%s -> %s (copied)\n", dry_run_prefix, src, dest);
+    }
+    
     return 0;
 }
 
@@ -449,7 +487,6 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
     struct stat st;
     char src_full[MAX_PATH];
     char dest_full[MAX_PATH];
-    file_info_t *matching_file;
     
     src_dir = opendir(src_path);
     if (!src_dir) {
@@ -492,42 +529,8 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
                 }
             }
         } else if (S_ISREG(st.st_mode)) {
-            matching_file = NULL;
-            
-            if (!should_overwrite(src_full, dest_full, opts)) {
-                if (opts->verbose) {
-                    printf("skipping '%s' (not overwriting)\n", dest_full);
-                }
-                stats->files_skipped++;
+            if (copy_or_link_file(src_full, dest_full, ref_files, opts, stats) != 0) {
                 continue;
-            }
-            
-            if (ref_files) {
-                matching_file = find_matching_file(ref_files, src_full, opts, stats);
-            }
-            
-            if (create_directory_structure(src_full, dest_full, opts) != 0) {
-                fprintf(stderr, "Warning: Cannot create directory structure for %s\n", dest_full);
-                continue;
-            }
-            
-            if (copy_or_link_file(src_full, dest_full, 
-                                 matching_file ? matching_file->path : NULL, 
-                                 opts, stats) != 0) {
-                fprintf(stderr, "Warning: Cannot copy %s to %s: %s\n", 
-                        src_full, dest_full, strerror(errno));
-                continue;
-            }
-            
-            if (opts->verbose) {
-                const char *dry_run_prefix = opts->dry_run ? "[DRY RUN] " : "";
-                if (matching_file) {
-                    printf("%s%s -> %s (%s to %s)\n", dry_run_prefix, src_full, dest_full,
-                           opts->link_type == LINK_HARD ? "hard link" : "soft link",
-                           matching_file->path);
-                } else {
-                    printf("%s%s -> %s (copied)\n", dry_run_prefix, src_full, dest_full);
-                }
             }
             
             if (opts->show_stats) {
@@ -618,45 +621,9 @@ int copy_directory(const options_t *opts, stats_t *stats) {
                 overall_result = -1;
             }
         } else {
-            file_info_t *matching_file = NULL;
-            
-            if (!should_overwrite(src_path, dest_path, opts)) {
-                if (opts->verbose) {
-                    printf("skipping '%s' (not overwriting)\n", dest_path);
-                }
-                stats->files_skipped++;
-                continue;
-            }
-            
-            if (ref_files) {
-                matching_file = find_matching_file(ref_files, src_path, opts, stats);
-                if (opts->verbose && matching_file) {
-                    printf("Found matching reference file for %s: %s\n", src_path, matching_file->path);
-                }
-            }
-            
-            if (create_directory_structure(src_path, dest_path, opts) != 0) {
-                fprintf(stderr, "Error: Cannot create directory structure for %s\n", dest_path);
+            if (copy_or_link_file(src_path, dest_path, ref_files, opts, stats) != 0) {
                 overall_result = -1;
                 continue;
-            }
-            
-            if (copy_or_link_file(src_path, dest_path,
-                                 matching_file ? matching_file->path : NULL,
-                                 opts, stats) != 0) {
-                overall_result = -1;
-                continue;
-            }
-            
-            if (opts->verbose) {
-                const char *dry_run_prefix = opts->dry_run ? "[DRY RUN] " : "";
-                if (matching_file) {
-                    printf("%s%s -> %s (%s to %s)\n", dry_run_prefix, src_path, dest_path,
-                           opts->link_type == LINK_HARD ? "hard link" : "soft link",
-                           matching_file->path);
-                } else {
-                    printf("%s%s -> %s (copied)\n", dry_run_prefix, src_path, dest_path);
-                }
             }
             
             if (opts->show_stats) {
