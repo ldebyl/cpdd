@@ -57,7 +57,7 @@ typedef enum {
 /* File matching results */
 typedef enum {
     MATCH_SUCCESS = 1,        /* Files match completely */
-    MATCH_FAIL_CACHED = 0,    /* Fast rejection via cached blocks */
+    MATCH_FAIL_HASHES = 0,    /* Fast rejection via cached blocks */
     MATCH_FAIL_BYTEWISE = -1, /* Failed during bytewise comparison */
     MATCH_ERROR = -2          /* File I/O or other error */
 } match_result_t;
@@ -115,16 +115,16 @@ typedef struct {
 
 /* Block-based MD5 cache for incremental comparison */
 typedef struct {
-    unsigned char (*block_md5s)[BLOCK_HASH_SIZE]; /* Dynamically allocated block hashes */
+    unsigned char (*block_md5s)[BLOCK_HASH_SIZE];  /* Dynamically allocated block hashes */
     int cached_blocks;                             /* Number of blocks currently cached */
     int allocated_blocks;                          /* Number of blocks allocated */
-} block_cache_t;
+} hash_chain_t;
 
 /* Reference file information for deduplication */
 typedef struct file_info {
     char *path;                         /* Full path to file */
     off_t size;                         /* File size in bytes */
-    block_cache_t block_cache;          /* Block-based MD5 cache */
+    hash_chain_t block_cache;           /* Block-based MD5 cache */
     struct file_info *next;             /* Next file in linked list */
 } file_info_t;
 
@@ -133,7 +133,7 @@ int parse_args(int argc, char *argv[], options_t *opts);
 
 /* Main copy operations */
 int copy_directory(const options_t *opts, stats_t *stats);
-int create_directory_structure(const char *src_path, const char *dest_path);
+int create_directory_structure(const char *src_path, const char *dest_path, const options_t *opts);
 
 /* Sorted file info structure */
 typedef struct {
@@ -148,9 +148,9 @@ file_info_t *find_matching_file(sorted_file_info_t *ref_files, const char *src_f
 match_result_t files_match(file_info_t *ref_file, file_info_t *src_file);
 
 /* Block cache management */
-void init_block_cache(block_cache_t *cache);
-int grow_block_cache(block_cache_t *cache);
-void free_block_cache(block_cache_t *cache);
+void init_hash_chain(hash_chain_t *cache);
+int grow_hash_chain(hash_chain_t *cache);
+void free_hash_chain(hash_chain_t *cache);
 
 /* File operations */
 int copy_or_link_file(const char *src, const char *dest, const char *ref, const options_t *opts, stats_t *stats);
@@ -158,11 +158,6 @@ int should_overwrite(const char *src_path, const char *dest_path, const options_
 int preserve_file_attributes(const char *src, const char *dest, const preserve_t *preserve);
 int parse_preserve_list(const char *preserve_list, preserve_t *preserve);
 
-/* File operation wrappers */
-static int file_unlink(const char *path, const options_t *opts);
-static int file_link(const char *oldpath, const char *newpath, const options_t *opts);
-static int file_symlink(const char *target, const char *linkpath, const options_t *opts);
-static int file_copy(const char *src, const char *dest, const options_t *opts, struct stat *src_st);
 
 /* Statistics and output formatting */
 void format_bytes(off_t bytes, int human_readable, char *buffer, size_t buffer_size);
@@ -182,7 +177,6 @@ void print_stats_at_bottom(const char *format, ...);
 void truncate_path(const char *path, char *buffer, size_t buffer_size, int max_width);
 
 /* Signal handling and cleanup */
-void setup_signal_handlers(void);
 void register_incomplete_file(const char *path);
 void unregister_incomplete_file(void);
 void cleanup_incomplete_file(void);

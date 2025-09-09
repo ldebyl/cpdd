@@ -299,45 +299,77 @@ void print_statistics(const stats_t *stats, int human_readable) {
 /* Ensures that the directory structure for dest_path exists,
  * creating directories as needed, using the permissions of
  * the source path or its parent directory */
-int create_directory_structure(const char *src_path, const char *dest_path) {
-    struct stat st;
-    char dest_dir[MAX_PATH];
-    char *last_slash;
+/* Create directory with proper permissions, handling dry run */
+static int create_directory(const char *path, mode_t mode, const options_t *opts) {
+    if (opts->dry_run) {
+        return 0; /* Pretend success */
+    }
     
-    if (stat(src_path, &st) != 0) {
+    if (mkdir(path, mode) != 0 && errno != EEXIST) {
+        return -1;
+    }
+    return 0;
+}
+
+/* Create parent directories recursively (mkdir -p style) */
+static int create_parent_directories(const char *path, mode_t default_mode, const options_t *opts) {
+    char dir_path[MAX_PATH];
+    char *slash;
+    struct stat st;
+    
+    strncpy(dir_path, path, sizeof(dir_path) - 1);
+    dir_path[sizeof(dir_path) - 1] = '\0';
+    
+    /* Find the last slash to get parent directory */
+    slash = strrchr(dir_path, '/');
+    if (!slash) {
+        return 0; /* No parent directory needed */
+    }
+    
+    *slash = '\0'; /* Truncate to parent directory */
+    
+    /* Check if parent already exists */
+    if (stat(dir_path, &st) == 0) {
+        return 0; /* Parent exists */
+    }
+    
+    /* Recursively create parent's parent */
+    if (create_parent_directories(dir_path, default_mode, opts) != 0) {
         return -1;
     }
     
-    if (S_ISDIR(st.st_mode)) {
-        if (mkdir(dest_path, st.st_mode) != 0 && errno != EEXIST) {
-            return -1;
-        }
-        return 0;
+    /* Create this directory */
+    if (create_directory(dir_path, default_mode, opts) != 0) {
+        return -1;
     }
     
-    strncpy(dest_dir, dest_path, sizeof(dest_dir) - 1);
-    dest_dir[sizeof(dest_dir) - 1] = '\0';
+    return 0;
+}
+
+/* Create directory structure for destination, preserving source permissions */
+int create_directory_structure(const char *src_path, const char *dest_path, const options_t *opts) {
+    struct stat src_st;
     
-    last_slash = strrchr(dest_dir, '/');
-    if (last_slash) {
-        *last_slash = '\0';
+    if (stat(src_path, &src_st) != 0) {
+        return -1;
+    }
+    
+    if (S_ISDIR(src_st.st_mode)) {
+        /* Source is directory - create destination directory */
+        if (create_directory(dest_path, src_st.st_mode, opts) != 0) {
+            return -1;
+        }
         
-        if (access(dest_dir, F_OK) != 0) {
-            struct stat parent_st;
-            char src_dir[MAX_PATH];
-            
-            strncpy(src_dir, src_path, sizeof(src_dir) - 1);
-            src_dir[sizeof(src_dir) - 1] = '\0';
-            
-            last_slash = strrchr(src_dir, '/');
-            if (last_slash) {
-                *last_slash = '\0';
-                if (stat(src_dir, &parent_st) == 0) {
-                    if (mkdir(dest_dir, parent_st.st_mode) != 0 && errno != EEXIST) {
-                        return -1;
-                    }
-                }
+        /* Preserve attributes if requested */
+        if (opts->preserve.mode || opts->preserve.ownership || opts->preserve.timestamps) {
+            if (!opts->dry_run) {
+                preserve_file_attributes(src_path, dest_path, &opts->preserve);
             }
+        }
+    } else {
+        /* Source is file - create parent directory for destination file */
+        if (create_parent_directories(dest_path, 0755, opts) != 0) {
+            return -1;
         }
     }
     
@@ -390,13 +422,11 @@ int copy_or_link_file(const char *src, const char *dest, const char *ref, const 
         }
     }
     
-    /* Copy the file using our wrapper function */
     int bytes_copied = file_copy(src, dest, opts, &src_st);
     if (bytes_copied < 0) {
         return -1;
     }
     
-    /* Update stats */
     stats->files_copied++;
     stats->bytes_copied += bytes_copied;
     
@@ -428,7 +458,7 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
         return -1;
     }
     
-    if (create_directory_structure(src_path, dest_path) != 0) {
+    if (create_directory_structure(src_path, dest_path, opts) != 0) {
         fprintf(stderr, "Error: Cannot create destination directory %s: %s\n", 
                 dest_path, strerror(errno));
         closedir(src_dir);
@@ -476,7 +506,7 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
                 matching_file = find_matching_file(ref_files, src_full, opts, stats);
             }
             
-            if (create_directory_structure(src_full, dest_full) != 0) {
+            if (create_directory_structure(src_full, dest_full, opts) != 0) {
                 fprintf(stderr, "Warning: Cannot create directory structure for %s\n", dest_full);
                 continue;
             }
@@ -605,7 +635,7 @@ int copy_directory(const options_t *opts, stats_t *stats) {
                 }
             }
             
-            if (create_directory_structure(src_path, dest_path) != 0) {
+            if (create_directory_structure(src_path, dest_path, opts) != 0) {
                 fprintf(stderr, "Error: Cannot create directory structure for %s\n", dest_path);
                 overall_result = -1;
                 continue;

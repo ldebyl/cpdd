@@ -24,6 +24,21 @@
 
 #include "cpdd.h"
 
+// Signal handler to clean up incomplete file on termination
+static void signal_handler(int sig) {
+    cleanup_incomplete_file();
+    exit(128 + sig);
+}
+
+// Sets up signal handlers for SIGINT and SIGTERM
+static void setup_signal_handlers(void) {
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
+    signal(SIGHUP, signal_handler);
+    signal(SIGQUIT, signal_handler);
+    signal(SIGPIPE, signal_handler);
+}
+
 int main(int argc, char *argv[]) {
     options_t opts;
     stats_t stats = {0};

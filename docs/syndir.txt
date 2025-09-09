@@ -30,27 +30,10 @@ OPTIONS
               Create COUNT directories in each tree (default: 10). Use  0  for
               flat directory structure.
 
-       -p, --percent FACTOR
-              Fraction of source files that duplicate reference content (0.0-
-              1.0, default: 0.3). Higher values create more deduplication op-
-              portunities.
-
-       -i, --similarity VAL
-              Similarity factor for duplicates (0.0-1.0: 0=different, 1=iden-
-              tical, default: 1.0). Controls how similar duplicate files are.
-
-       -e, --exact-percent FACTOR
-              Fraction of duplicates that are exact copies (default: 0.4).
-
-       -r, --prefix-percent FACTOR
-              Fraction of duplicates similar at start (default: 0.3).
-
-       -u, --suffix-percent FACTOR
-              Fraction of duplicates similar at end (default: 0.2).
-
-       -b, --size-buckets COUNT
-              Number of size buckets for forced collisions (0=normal distribu-
-              tion, default: 0). Creates more files of similar sizes.
+       -p, --percent PCT
+              Percentage  of  source  files  that  duplicate reference content
+              (0-100, default: 30). Higher values  create  more  deduplication
+              opportunities.
 
        --size-p50 SIZE
               50th percentile file size in bytes (default: 4096). Half of gen-
@@ -84,10 +67,10 @@ EXAMPLES
               syndir /tmp/ref /tmp/src
 
        High duplication scenario:
-              syndir -f 200 -d 20 -p 0.8 /tmp/ref /tmp/src
+              syndir -f 200 -d 20 -p 80 /tmp/ref /tmp/src
 
        Large test set with verbose output:
-              syndir -v -f 1000 -d 50 -p 0.6 /tmp/ref /tmp/src
+              syndir -v -f 1000 -d 50 -p 60 /tmp/ref /tmp/src
 
        Small files (document-like):
               syndir --size-p50 1024 --size-p95 8192 --size-max 32768 /tmp/ref
@@ -97,15 +80,9 @@ EXAMPLES
               syndir --size-scale 1000 -f 50 /tmp/ref /tmp/src
 
        Complete testing workflow:
-              syndir -v -f 500 -p 0.5 /tmp/ref /tmp/src
+              syndir -v -f 500 -p 50 /tmp/ref /tmp/src
               cpdd -r /tmp/ref -v --stats /tmp/src /tmp/dest
               du -sh /tmp/ref /tmp/src /tmp/dest
-
-       Advanced similarity testing:
-              syndir -f 100 -p 0.7 -i 0.8 -e 0.2 -r 0.4 -u 0.3 /tmp/ref /tmp/src
-
-       Size collision testing:
-              syndir -f 200 -b 10 --size-p50 8192 /tmp/ref /tmp/src
 
 FILE SIZE DISTRIBUTION
        syndir generates files with realistic  size  distributions  using  per-
@@ -127,19 +104,14 @@ DUPLICATION STRATEGY
 
        1.  A reference file is randomly selected
 
-       2.  Content similarity is determined by the similarity distribution:
-           - Exact copies (--exact-percent): Perfect duplicates
-           - Prefix similar (--prefix-percent): Similar at start, different at end  
-           - Suffix similar (--suffix-percent): Different at start, similar at end
-           - Remaining files: Completely different content
+       2.  Content is copied exactly but with a different filename
 
-       3.  File is placed in a different directory location with different name
+       3.  File is placed in a different directory location
 
-       4.  This creates realistic deduplication test scenarios
+       4.  This creates perfect deduplication candidates for testing
 
-           The --similarity factor controls how much of the file content is
-           similar for prefix/suffix patterns. Non-duplicate files contain
-           unique random content generated from a pseudorandom source.
+           Non-duplicate files contain unique random content generated from  a
+           pseudorandom source.
 
 EXIT STATUS
        syndir exits with status 0 on success, 1 on error.
@@ -155,15 +127,8 @@ NOTES
        The  size  percentile  parameters  must be in ascending order: p50  p95
        max.
 
-       For testing scenarios, typical duplication fractions range from 0.2 
-       (conservative) to 0.8 (aggressive deduplication scenarios).
-
-       The similarity fractions (--exact-percent, --prefix-percent, --suffix-
-       percent) must sum to 1.0 or less. Any remaining fraction will be ran-
-       domly different files.
-
-       Using --size-buckets creates intentional size collisions to test the
-       efficiency of content-based deduplication vs size-based filtering.
+       For testing scenarios, typical duplication percentages range  from  20%
+       (conservative) to 80% (aggressive deduplication scenarios).
 
 EXAMPLES DIRECTORY
        The syndir distribution includes example scripts:
