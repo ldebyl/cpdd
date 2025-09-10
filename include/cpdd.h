@@ -140,11 +140,11 @@ typedef struct {
     file_info_t **files;
     int count;
     int capacity;
-} sorted_file_info_t;
+} ref_files_t;
 
 /* File matching and deduplication */
-sorted_file_info_t *scan_reference_directory(const options_t *opts, stats_t *stats);
-file_info_t *find_matching_file(sorted_file_info_t *ref_files, const char *src_file, const options_t *opts, stats_t *stats);
+ref_files_t *scan_reference_directory(const options_t *opts, stats_t *stats);
+file_info_t *find_matching_file(ref_files_t *ref_files, const char *src_file, const options_t *opts, stats_t *stats);
 match_result_t files_match(file_info_t *ref_file, file_info_t *src_file);
 
 /* Block cache management */
@@ -153,7 +153,7 @@ int grow_hash_chain(hash_chain_t *cache);
 void free_hash_chain(hash_chain_t *cache);
 
 /* File operations */
-int copy_or_link_file(const char *src, const char *dest, sorted_file_info_t *ref_files, const options_t *opts, stats_t *stats);
+int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files, const options_t *opts, stats_t *stats);
 int should_overwrite(const char *src_path, const char *dest_path, const options_t *opts);
 int preserve_file_attributes(const char *src, const char *dest, const preserve_t *preserve);
 int parse_preserve_list(const char *preserve_list, preserve_t *preserve);
@@ -164,7 +164,7 @@ void format_bytes(off_t bytes, int human_readable, char *buffer, size_t buffer_s
 void format_stats_line(const stats_t *stats, int human_readable, char *buffer, size_t buffer_size);
 void print_statistics(const stats_t *stats, int human_readable);
 void free_file_list(file_info_t *list);
-void free_sorted_file_info(sorted_file_info_t *sorted_files);
+void free_sorted_file_info(ref_files_t *sorted_files);
 void print_usage(const char *program_name);
 
 /* Terminal output and status display */

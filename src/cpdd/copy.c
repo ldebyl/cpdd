@@ -377,7 +377,7 @@ int create_directory_structure(const char *src_path, const char *dest_path, cons
 }
 
 // Copies a file from src to dest, optionally creating a hard or soft link
-int copy_or_link_file(const char *src, const char *dest, sorted_file_info_t *ref_files, const options_t *opts, stats_t *stats) {
+int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files, const options_t *opts, stats_t *stats) {
     struct stat src_st;
     file_info_t *matching_file = NULL;
     
@@ -481,7 +481,7 @@ int copy_or_link_file(const char *src, const char *dest, sorted_file_info_t *ref
 }
 
 static int copy_directory_recursive(const char *src_path, const char *dest_path, 
-                                   sorted_file_info_t *ref_files, const options_t *opts, stats_t *stats) {
+                                   ref_files_t *ref_files, const options_t *opts, stats_t *stats) {
     DIR *src_dir;
     struct dirent *entry;
     struct stat st;
@@ -552,7 +552,7 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
 
 int copy_directory(const options_t *opts, stats_t *stats) {
     struct stat dest_st;
-    sorted_file_info_t *ref_files = NULL;
+    ref_files_t *ref_files = NULL;
     int overall_result = 0;
     int dest_is_dir = 0;
     

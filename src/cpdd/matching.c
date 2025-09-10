@@ -217,45 +217,10 @@ static void collect_file_info(const char *ref_dir, const options_t *opts, int *c
     }
 }
 
-/*
- * Sorted array functions for file info objects
- */
-
-static sorted_file_info_t *sorted_file_info_init(int initial_capacity) {
-    sorted_file_info_t *list = malloc(sizeof(sorted_file_info_t));
-    if (!list) return NULL;
-    list->files = malloc(sizeof(file_info_t *) * initial_capacity);
-    if (!list->files) {
-        free(list);
-        return NULL;
-    }
-    list->count = 0;
-    list->capacity = initial_capacity;
-    return list;
-}
-
 static int compare_file_info_size(const void *a, const void *b) {
     file_info_t *file_a = *(file_info_t **)a;
     file_info_t *file_b = *(file_info_t **)b;
     return (file_a->size > file_b->size) - (file_a->size < file_b->size);
-}
-
-
-static int sorted_file_info_add(sorted_file_info_t *list, file_info_t *file) {
-    /* Resize if needed */
-    if (list->count >= list->capacity) {
-        list->capacity *= 2;
-        file_info_t **new_files = realloc(list->files, sizeof(file_info_t *) * list->capacity);
-        if (!new_files) {
-            fprintf(stderr, "Warning: Memory allocation failed, some files may not be processed\n");
-            return -1; /* Failed to resize */
-        }
-        list->files = new_files;
-    }
-    
-    /* Just add - don't sort yet */
-    list->files[list->count++] = file;
-    return 0;
 }
 
 
@@ -266,10 +231,10 @@ static int sorted_file_info_add(sorted_file_info_t *list, file_info_t *file) {
  * MD5 is calculated lazily during the first comparison attempt.
  * Returns sorted_file_info_t structure with array of file_info_t pointers, or NULL on error.
  */
-sorted_file_info_t *scan_reference_directory(const options_t *opts, stats_t *stats) {
+ref_files_t *scan_reference_directory(const options_t *opts, stats_t *stats) {
     file_info_t *head = NULL;
     file_info_t *current;
-    sorted_file_info_t *sorted_files;
+    ref_files_t *sorted_files;
     
     /* First pass: collect all files from all reference directories */
     int total_files = 0;
@@ -282,31 +247,31 @@ sorted_file_info_t *scan_reference_directory(const options_t *opts, stats_t *sta
         return NULL;
     }
     
-    /* Initialize sorted array for file info objects */
-    sorted_files = sorted_file_info_init(total_files);
+    /* Allocate sorted array */
+    sorted_files = malloc(sizeof(ref_files_t));
     if (!sorted_files) {
         free_file_list(head);
         return NULL;
     }
     
-    /* Add all files to array */
+    sorted_files->files = malloc(sizeof(file_info_t *) * total_files);
+    if (!sorted_files->files) {
+        free(sorted_files);
+        free_file_list(head);
+        return NULL;
+    }
+    
+    sorted_files->count = total_files;
+    sorted_files->capacity = total_files;
+    
+    /* Transfer files from linked list to array */
     current = head;
-    while (current) {
+    for (int i = 0; i < total_files && current; i++) {
         file_info_t *next = current->next;
-        current->next = NULL; /* Break the linked list connection */
-        if (sorted_file_info_add(sorted_files, current) != 0) {
-            /* Memory allocation failed - free remaining files and continue with what we have */
-            while (current) {
-                file_info_t *temp = current->next;
-                free(current->path);
-                free(current);
-                current = temp;
-            }
-            break;
-        }
+        current->next = NULL;
+        sorted_files->files[i] = current;
         current = next;
     }
-    /* Don't free anything - the file_info_t objects are now owned by sorted_files */
 
     /* Sort once after all files are added */
     qsort(sorted_files->files, sorted_files->count, sizeof(file_info_t *), compare_file_info_size);
@@ -341,7 +306,7 @@ static void update_hash_stats(stats_t *stats, file_info_t *file) {
 
 /* Finds a file in the ser of reference files that matches the source file.
    This is the main matching algorithm. */
-file_info_t *find_matching_file(sorted_file_info_t *ref_files, const char *src_file, const options_t *opts, stats_t *stats) {
+file_info_t *find_matching_file(ref_files_t *ref_files, const char *src_file, const options_t *opts, stats_t *stats) {
     struct stat st;
 
     if (stat(src_file, &st) != 0) {
@@ -427,7 +392,7 @@ void free_file_list(file_info_t *list) {
     }
 }
 
-void free_sorted_file_info(sorted_file_info_t *sorted_files) {
+void free_sorted_file_info(ref_files_t *sorted_files) {
     if (!sorted_files) return;
     
     /* Free all file_info_t objects */
