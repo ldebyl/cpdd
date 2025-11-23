@@ -54,14 +54,29 @@ static int file_copy(const char *src, const char *dest, const options_t *opts, s
         return src_st->st_size;  /* Return bytes that would be copied */
     }
     
+    /* Get optimal block size for this file */
+    size_t block_size = get_optimal_block_size(src, opts);
+    
+    /* Show block size info in verbose mode if auto-detected */
+    if (opts->verbose && opts->block_size == 0) {
+        VERBOSE("Using block size %zu bytes for %s\n", block_size, src);
+    }
+    
     /* Actual file copy implementation */
     int src_fd, dest_fd;
-    char buffer[BUFFER_SIZE];
+    char *buffer;
     ssize_t bytes_read, bytes_written;
+    
+    /* Allocate buffer based on optimal block size */
+    buffer = malloc(block_size);
+    if (!buffer) {
+        return -1;
+    }
     
     // Open source file for reading
     src_fd = open(src, O_RDONLY);
     if (src_fd < 0) {
+        free(buffer);
         return -1;
     }
 
@@ -69,6 +84,7 @@ static int file_copy(const char *src, const char *dest, const options_t *opts, s
     dest_fd = open(dest, O_WRONLY | O_CREAT | O_TRUNC, src_st->st_mode);
     if (dest_fd < 0) {
         close(src_fd);
+        free(buffer);
         return -1;
     }
     
@@ -76,11 +92,12 @@ static int file_copy(const char *src, const char *dest, const options_t *opts, s
     register_incomplete_file(dest);
     
     // Perform the copy
-    while ((bytes_read = read(src_fd, buffer, BUFFER_SIZE)) > 0) {
+    while ((bytes_read = read(src_fd, buffer, block_size)) > 0) {
         bytes_written = write(dest_fd, buffer, bytes_read);
         if (bytes_written != bytes_read) {
             close(src_fd);
             close(dest_fd);
+            free(buffer);
             cleanup_incomplete_file();
             return -1;
         }
@@ -88,6 +105,7 @@ static int file_copy(const char *src, const char *dest, const options_t *opts, s
     
     close(src_fd);
     close(dest_fd);
+    free(buffer);
     
     // Unregister the incomplete file since copy succeeded
     unregister_incomplete_file();
@@ -136,6 +154,42 @@ void cleanup_incomplete_file(void) {
         unlink(current_incomplete_file);
         unregister_incomplete_file();
     }
+}
+
+/* Copy a symbolic link itself (not its target) */
+static int copy_symlink(const char *src, const char *dest, const options_t *opts) {
+    char link_target[MAX_PATH];
+    ssize_t len;
+
+    /* Read the symlink target */
+    len = readlink(src, link_target, sizeof(link_target) - 1);
+    if (len == -1) {
+        fprintf(stderr, "Error: Cannot read symlink %s: %s\n", src, strerror(errno));
+        return -1;
+    }
+    link_target[len] = '\0';
+
+    if (opts->dry_run) {
+        if (opts->verbose) {
+            print_verbose("[DRY RUN] %s -> %s (symlink to %s)", src, dest, link_target);
+        }
+        return 0;
+    }
+
+    /* Remove destination if it exists */
+    unlink(dest);
+
+    /* Create the new symlink */
+    if (symlink(link_target, dest) != 0) {
+        fprintf(stderr, "Error: Cannot create symlink %s: %s\n", dest, strerror(errno));
+        return -1;
+    }
+
+    if (opts->verbose) {
+        print_verbose("%s -> %s (symlink to %s)", src, dest, link_target);
+    }
+
+    return 0;
 }
 
 /* Given source and destination files, determine if destination should be overwritten
@@ -206,10 +260,62 @@ int preserve_file_attributes(const char *src, const char *dest, const preserve_t
     return 0;
 }
 
+/* Parse size string with K/M/G suffixes (like dd bs= parameter) */
+size_t parse_size(const char *size_str) {
+    char *endptr;
+    unsigned long long value = strtoull(size_str, &endptr, 10);
+    
+    if (value == 0 || endptr == size_str) {
+        return 0;  /* Invalid number */
+    }
+    
+    /* Handle suffix */
+    if (*endptr != '\0') {
+        switch (*endptr) {
+            case 'k':
+            case 'K':
+                value *= 1024;
+                break;
+            case 'm':
+            case 'M':
+                value *= 1024 * 1024;
+                break;
+            case 'g':
+            case 'G':
+                value *= 1024 * 1024 * 1024;
+                break;
+            default:
+                return 0;  /* Invalid suffix */
+        }
+    }
+    
+    /* Sanity check - block size should be reasonable */
+    if (value < 512 || value > 16 * 1024 * 1024) {  /* 512B to 16MB */
+        return 0;
+    }
+    
+    return (size_t)value;
+}
+
+/* Get optimal block size for file I/O */
+size_t get_optimal_block_size(const char *filename, const options_t *opts) {
+    if (opts->block_size > 0) {
+        return opts->block_size;  /* User override */
+    }
+    
+    struct stat st;
+    if (stat(filename, &st) == 0 && st.st_blksize > 0) {
+        /* Use filesystem's preferred I/O block size */
+        return (size_t)st.st_blksize;
+    }
+    
+    return BUFFER_SIZE;  /* Fallback to default */
+}
+
 /* Formats byte counts with human-readable quantities */
 void format_bytes(off_t bytes, int human_readable, char *buffer, size_t buffer_size) {
     if (!human_readable) {
-        snprintf(buffer, buffer_size, "%lld", (long long)bytes);
+        snprintf(buffer, buffer_size, "%lld bytes", (long long)bytes);
         return;
     }
     
@@ -380,42 +486,109 @@ int create_directory_structure(const char *src_path, const char *dest_path, cons
 int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files, const options_t *opts, stats_t *stats) {
     struct stat src_st;
     file_info_t *matching_file = NULL;
-    
-    if (stat(src, &src_st) != 0) {
-        return -1;
+
+    /* Check if we should skip symlinks entirely */
+    if (opts->skip_symlinks) {
+        struct stat lstat_st;
+        if (lstat(src, &lstat_st) == 0 && S_ISLNK(lstat_st.st_mode)) {
+            if (opts->verbose >= 2) {
+                print_verbose("skipping symlink: %s", src);
+            }
+            stats->files_skipped++;
+            return 0;
+        }
     }
-    
-    /* Check if we should overwrite */
-    if (!should_overwrite(src, dest, opts)) {
-        if (opts->verbose) {
-            printf("skipping '%s' (not overwriting)\n", dest);
+
+    /* Use lstat if not dereferencing, stat otherwise */
+    int stat_result;
+    if (opts->no_dereference) {
+        stat_result = lstat(src, &src_st);
+
+        if (stat_result != 0) {
+            fprintf(stderr, "Error: Cannot lstat %s: %s\n", src, strerror(errno));
+            return -1;
+        }
+    } else {
+        stat_result = stat(src, &src_st);
+
+        if (stat_result != 0) {
+            /* Check if it's a broken symlink */
+            struct stat lstat_st;
+            if (lstat(src, &lstat_st) == 0 && S_ISLNK(lstat_st.st_mode)) {
+                fprintf(stderr, "Warning: Skipping broken symlink: %s\n", src);
+                stats->files_skipped++;
+                return 0;
+            }
+            fprintf(stderr, "Error: Cannot stat %s: %s\n", src, strerror(errno));
+            return -1;
+        }
+    }
+
+    /* If it's a symlink and we're not dereferencing, copy the symlink itself */
+    if (opts->no_dereference && S_ISLNK(src_st.st_mode)) {
+        /* Check if we should overwrite */
+        if (!should_overwrite(src, dest, opts)) {
+            if (opts->verbose) {
+                print_verbose("skipping '%s' (not overwriting)", dest);
+            }
+            stats->files_skipped++;
+            return 0;
+        }
+
+        /* Ensure destination directory exists */
+        if (create_directory_structure(src, dest, opts) != 0) {
+            return -1;
+        }
+
+        /* Copy the symlink itself, skip all duplicate detection */
+        return copy_symlink(src, dest, opts);
+    }
+
+    /* At this point, we either have a regular file or a dereferenced symlink */
+    if (!S_ISREG(src_st.st_mode)) {
+        if (opts->verbose >= 2) {
+            fprintf(stderr, "Warning: Skipping non-regular file: %s\n", src);
         }
         stats->files_skipped++;
         return 0;
     }
-    
-    /* Find matching reference file if available */
-    if (ref_files) {
-        matching_file = find_matching_file(ref_files, src, opts, stats);
-        if (opts->verbose && matching_file) {
-            printf("Found matching reference file for %s: %s\n", src, matching_file->path);
+
+    /* Check if we should overwrite */
+    if (!should_overwrite(src, dest, opts)) {
+        if (opts->verbose) {
+            print_verbose("skipping '%s' (not overwriting)", dest);
         }
+        stats->files_skipped++;
+        return 0;
     }
-    
+
+    /* Find matching reference file if available */
+    matching_file = find_matching_file(ref_files, src, opts, stats);
+    if (matching_file) {
+        VERBOSE("Found matching reference file for %s: %s\n", src, matching_file->path);
+    }
+
+    /* If --only-new is set and file exists in reference, skip it */
+    if (opts->only_new && matching_file) {
+        if (opts->verbose) {
+            print_verbose("skipping '%s' (already exists in reference: %s)", src, matching_file->path);
+        }
+        stats->files_skipped++;
+        return 0;
+    }
+
     /* Ensure destination directory exists */
     if (create_directory_structure(src, dest, opts) != 0) {
         return -1;
     }
-    
+
     /* Try to create a link to reference file if we found a match */
     if (matching_file && opts->link_type != LINK_NONE) {
         struct stat ref_st;
         
         /* Get the size of the reference file */
         if (stat(matching_file->path, &ref_st) != 0) {
-            if (opts->verbose) {
-                printf("Warning: Could not stat reference file %s\n", matching_file->path);
-            }
+            VERBOSE("Warning: Could not stat reference file %s\n", matching_file->path);
         } else {
             /* Remove destination file if it exists */
             file_unlink(dest, opts);
@@ -424,31 +597,27 @@ int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
                 if (file_link(matching_file->path, dest, opts) == 0) {
                     stats->files_hard_linked++;
                     stats->bytes_hard_linked += src_st.st_size;
-                    
+
                     if (opts->verbose) {
                         const char *dry_run_prefix = opts->dry_run ? "[DRY RUN] " : "";
-                        printf("%s%s -> %s (hard link to %s)\n", dry_run_prefix, src, dest, matching_file->path);
+                        print_verbose("%s%s -> %s (hard link to %s)", dry_run_prefix, src, dest, matching_file->path);
                     }
                     return 0;
                 } else {
-                    if (opts->verbose) {
-                        printf("Failed to create hard link for %s -> %s: %s\n", matching_file->path, dest, strerror(errno));
-                    }
+                    fprintf(stderr, "Failed to create hard link for %s -> %s: %s\n", matching_file->path, dest, strerror(errno));
                 }
             } else if (opts->link_type == LINK_SOFT) {
                 if (file_symlink(matching_file->path, dest, opts) == 0) {
                     stats->files_soft_linked++;
                     stats->bytes_soft_linked += src_st.st_size;
-                    
+
                     if (opts->verbose) {
                         const char *dry_run_prefix = opts->dry_run ? "[DRY RUN] " : "";
-                        printf("%s%s -> %s (soft link to %s)\n", dry_run_prefix, src, dest, matching_file->path);
+                        print_verbose("%s%s -> %s (soft link to %s)", dry_run_prefix, src, dest, matching_file->path);
                     }
                     return 0;
                 } else {
-                    if (opts->verbose) {
-                        printf("Failed to create soft link for %s -> %s: %s\n", matching_file->path, dest, strerror(errno));
-                    }
+                    VERBOSE("Failed to create soft link for %s -> %s: %s\n", matching_file->path, dest, strerror(errno));
                 }
             }
         }
@@ -466,17 +635,15 @@ int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
     /* Preserve attributes if requested */
     if (opts->preserve.mode || opts->preserve.ownership || opts->preserve.timestamps) {
         if (preserve_file_attributes(src, dest, &opts->preserve) != 0) {
-            if (opts->verbose) {
                 fprintf(stderr, "Warning: Failed to preserve attributes for %s\n", dest);
-            }
         }
     }
     
     if (opts->verbose) {
         const char *dry_run_prefix = opts->dry_run ? "[DRY RUN] " : "";
-        printf("%s%s -> %s (copied)\n", dry_run_prefix, src, dest);
+        print_verbose("%s%s -> %s (copied)", dry_run_prefix, src, dest);
     }
-    
+
     return 0;
 }
 
@@ -515,12 +682,61 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
         
         snprintf(src_full, sizeof(src_full), "%s/%s", src_path, entry->d_name);
         snprintf(dest_full, sizeof(dest_full), "%s/%s", dest_path, entry->d_name);
-        
-        if (stat(src_full, &st) != 0) {
-            fprintf(stderr, "Warning: Cannot stat %s: %s\n", src_full, strerror(errno));
+
+        /* Check if we should skip symlinks entirely */
+        if (opts->skip_symlinks) {
+            struct stat lstat_st;
+            if (lstat(src_full, &lstat_st) == 0 && S_ISLNK(lstat_st.st_mode)) {
+                if (opts->verbose >= 2) {
+                    printf("skipping symlink: %s\n", src_full);
+                }
+                continue;
+            }
+        }
+
+        /* Use lstat if not dereferencing, stat otherwise */
+        int stat_result;
+        if (opts->no_dereference) {
+            stat_result = lstat(src_full, &st);
+
+            if (stat_result != 0) {
+                fprintf(stderr, "Warning: Cannot lstat %s: %s\n", src_full, strerror(errno));
+                continue;
+            }
+        } else {
+            stat_result = stat(src_full, &st);
+
+            if (stat_result != 0) {
+                /* Check if it's a broken symlink */
+                struct stat lstat_st;
+                if (lstat(src_full, &lstat_st) == 0 && S_ISLNK(lstat_st.st_mode)) {
+                    fprintf(stderr, "Warning: Skipping broken symlink: %s\n", src_full);
+                    continue;
+                }
+                fprintf(stderr, "Warning: Cannot stat %s: %s\n", src_full, strerror(errno));
+                continue;
+            }
+        }
+
+        /* Handle symlinks */
+        if (opts->no_dereference && S_ISLNK(st.st_mode)) {
+            if (copy_or_link_file(src_full, dest_full, ref_files, opts, stats) != 0) {
+                continue;
+            }
+
+            if (opts->show_stats) {
+                char stats_buffer[256];
+                format_stats_line(stats, opts->human_readable, stats_buffer, sizeof(stats_buffer));
+
+                if (opts->verbose == 0) {
+                    print_status_update("%s", stats_buffer);
+                } else {
+                    print_stats_at_bottom("%s", stats_buffer);
+                }
+            }
             continue;
         }
-        
+
         if (S_ISDIR(st.st_mode)) {
             if (opts->recursive) {
                 if (copy_directory_recursive(src_full, dest_full, ref_files, opts, stats) != 0) {
@@ -573,21 +789,14 @@ int copy_directory(const options_t *opts, stats_t *stats) {
     
     /* Scan reference directories once */
     if (opts->ref_dir_count > 0) {
-        if (opts->verbose) {
-            printf("Scanning %d reference directories...\n", opts->ref_dir_count);
-        }
+        VERBOSE("Scanning %d reference directories...\n", opts->ref_dir_count);
         ref_files = scan_reference_directory(opts, stats);
         if (!ref_files) {
-            if (opts->verbose) {
-                printf("Warning: No files found in reference directories\n");
-            }
+            fprintf(stderr, "Warning: No files found in reference directories\n");
         } else {
             // Get the number of reference files from the sorted structure
             int ref_file_count = ref_files->count;
-
-            if (opts->verbose) {
-                printf("Found %d reference files across all directories\n", ref_file_count);
-            }
+            VERBOSE("Found %d reference files across all directories\n", ref_file_count);
         }
     }
     

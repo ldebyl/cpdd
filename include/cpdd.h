@@ -47,6 +47,12 @@
 #define BLOCK_CACHE_GROW_SIZE 16  /* Number of blocks to allocate at once */
 #define MAX_CACHED_BLOCKS 512     /* Maximum blocks to cache per file */
 
+/* Logging Macros -- note the do/while allows inclusion and exclusion of the semicolon */
+extern int g_verbose;
+#define VERBOSE(...) do { \
+    if (g_verbose) printf(__VA_ARGS__); \
+} while(0)
+
 /* Linking strategy options */
 typedef enum {
     LINK_NONE,    /* Regular copy */
@@ -108,8 +114,14 @@ typedef struct {
     int interactive;        /* Prompt before overwriting */
     int update;             /* Overwrite only if source is newer */
     int dry_run;            /* Show what would be done without doing it */
+    int only_new;           /* Only copy files that don't exist in reference directories */
     int show_stats;         /* Display operation statistics */
     int human_readable;     /* Human-readable byte counts */
+    int match_name;         /* Match on filename in addition to size */
+    int no_verify;          /* Skip content comparison (requires match_name) */
+    int no_dereference;     /* Don't follow symlinks (copy them as-is) */
+    int skip_symlinks;      /* Skip symlinks entirely */
+    size_t block_size;      /* I/O block size (0 = auto-detect) */
     preserve_t preserve;    /* Attributes to preserve */
 } options_t;
 
@@ -118,13 +130,14 @@ typedef struct {
     unsigned char (*block_md5s)[BLOCK_HASH_SIZE];  /* Dynamically allocated block hashes */
     int cached_blocks;                             /* Number of blocks currently cached */
     int allocated_blocks;                          /* Number of blocks allocated */
-} hash_chain_t;
+} block_hashes_t;
 
 /* Reference file information for deduplication */
 typedef struct file_info {
     char *path;                         /* Full path to file */
+    char *basename;                     /* Basename of file (pointer into path) */
     off_t size;                         /* File size in bytes */
-    hash_chain_t block_cache;           /* Block-based MD5 cache */
+    block_hashes_t block_hashes;        /* Block-based MD5 hashes */
     struct file_info *next;             /* Next file in linked list */
 } file_info_t;
 
@@ -147,16 +160,20 @@ ref_files_t *scan_reference_directory(const options_t *opts, stats_t *stats);
 file_info_t *find_matching_file(ref_files_t *ref_files, const char *src_file, const options_t *opts, stats_t *stats);
 match_result_t files_match(file_info_t *ref_file, file_info_t *src_file);
 
-/* Block cache management */
-void init_hash_chain(hash_chain_t *cache);
-int grow_hash_chain(hash_chain_t *cache);
-void free_hash_chain(hash_chain_t *cache);
+/* Block hash management */
+void init_block_hashes(block_hashes_t *hashes);
+int grow_block_hashes(block_hashes_t *hashes);
+void free_block_hashes(block_hashes_t *hashes);
 
 /* File operations */
 int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files, const options_t *opts, stats_t *stats);
 int should_overwrite(const char *src_path, const char *dest_path, const options_t *opts);
 int preserve_file_attributes(const char *src, const char *dest, const preserve_t *preserve);
 int parse_preserve_list(const char *preserve_list, preserve_t *preserve);
+
+/* Block size utilities */
+size_t parse_size(const char *size_str);
+size_t get_optimal_block_size(const char *filename, const options_t *opts);
 
 
 /* Statistics and output formatting */
@@ -174,6 +191,8 @@ void fprint_status_update(FILE *stream, const char *format, ...);
 void clear_status_line(void);
 void fclear_status_line(FILE *stream);
 void print_stats_at_bottom(const char *format, ...);
+void print_verbose(const char *format, ...);
+void finalize_stats_line(void);
 void truncate_path(const char *path, char *buffer, size_t buffer_size, int max_width);
 
 /* Signal handling and cleanup */

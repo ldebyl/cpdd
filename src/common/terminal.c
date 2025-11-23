@@ -29,6 +29,7 @@
 
 static int terminal_capability_checked = 0;
 static int supports_clear_eol = 0;
+static int stats_line_active = 0;
 
 static int terminal_supports_clear_eol_for_fd(int fd) {
     if (!isatty(fd)) {
@@ -117,7 +118,7 @@ void fclear_status_line(FILE *stream) {
 void print_stats_at_bottom(const char *format, ...) {
     va_list args;
     va_start(args, format);
-    
+
     if (!terminal_supports_clear_eol()) {
         /* Fallback for non-terminal output */
         printf("[STATS] ");
@@ -127,18 +128,43 @@ void print_stats_at_bottom(const char *format, ...) {
         va_end(args);
         return;
     }
-    
-    /* Reserve bottom line for stats using ANSI escapes */
-    printf("\033[s");          /* Save cursor position */
-    printf("\033[999;1H");     /* Move to bottom line */
-    printf("\033[2K");         /* Clear entire line */
-    printf("\033[7m[STATS] "); /* Reverse video + label */
+
+    /* Update stats on current line */
+    printf("\r\033[7m[STATS] "); /* Reverse video + label */
     vprintf(format, args);
-    printf("\033[0m");         /* Reset attributes */
-    printf("\033[u");          /* Restore cursor position */
+    printf("\033[0m");           /* Reset attributes */
+    printf("\033[K");            /* Clear to end of line */
     fflush(stdout);
-    
+    stats_line_active = 1;
+
     va_end(args);
+}
+
+/* Print verbose message, clearing stats line if needed */
+void print_verbose(const char *format, ...) {
+    va_list args;
+
+    /* Clear stats line if active */
+    if (stats_line_active && terminal_supports_clear_eol()) {
+        printf("\r\033[K");  /* Clear line */
+        stats_line_active = 0;
+    }
+
+    /* Print verbose message */
+    va_start(args, format);
+    vprintf(format, args);
+    va_end(args);
+    printf("\n");
+    fflush(stdout);
+}
+
+/* Clear stats line at end of operation */
+void finalize_stats_line(void) {
+    if (stats_line_active && terminal_supports_clear_eol()) {
+        printf("\n");  /* Move to new line, preserving stats */
+        fflush(stdout);
+        stats_line_active = 0;
+    }
 }
 
 /* Truncate a path to fit within max_width, showing first and last parts */

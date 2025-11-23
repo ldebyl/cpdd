@@ -29,6 +29,15 @@ Never overwrite existing files.
 .BR \-i ", " \-\-interactive
 Prompt before overwriting existing files.
 .TP
+.BR \-u ", " \-\-update
+Overwrite only if source is newer than destination.
+.TP
+.BR \-\-dry-run
+Show what would be done without actually doing it.
+.TP
+.BR \-N ", " \-\-only-new
+Only copy files that don't exist in reference directories. Files with identical content in the reference will be skipped entirely (not copied or linked). Requires at least one reference directory (\fB\-r\fR).
+.TP
 .BR \-p
 Preserve file attributes (equivalent to \fB\-\-preserve=mode,ownership,timestamps\fR).
 .TP
@@ -51,6 +60,21 @@ Preserve specified file attributes. If no \fIATTR_LIST\fR is given, preserves mo
 .TP
 .BR \-\-stats
 Display statistics after the copy operation, including number of files copied, linked, and skipped.
+.TP
+.BR \-\-block-size " " \fISIZE\fR
+I/O block size for file operations. SIZE can be specified in bytes or with suffix K, M, G (e.g., 64K, 1M). Default: auto-detect from filesystem.
+.TP
+.BR \-m ", " \-\-match-name
+Match on filename in addition to size. When enabled, only reference files with the same basename as the source file will be considered for matching. Size matching is always performed.
+.TP
+.BR \-\-no-verify
+Skip content comparison and accept matches based solely on size and filename. Requires \fB\-\-match-name\fR to be enabled. Use with caution as this may create links to files with different content if they have the same size and name.
+.TP
+.BR \-\-no-dereference
+Do not follow symbolic links. When this option is specified, symbolic links are copied as symbolic links rather than copying the files they point to. Duplicate detection is skipped for symbolic links. Without this option (default), symbolic links are dereferenced and their targets are copied. Mutually exclusive with \fB\-\-skip-symlinks\fR.
+.TP
+.BR \-\-skip-symlinks
+Skip symbolic links entirely. Symbolic links are neither copied nor dereferenced - they are simply ignored. Useful for copying only regular files or when copying to filesystems that don't support symbolic links. Mutually exclusive with \fB\-\-no-dereference\fR.
 .TP
 .BR \-h ", " \-\-human-readable
 Show file sizes in human-readable format (K, M, G) in statistics and verbose output.
@@ -76,31 +100,47 @@ cpdd \-r /reference/ \-s \-\-stats source/ /dest/
 .TP
 .B Interactive copy preserving attributes:
 cpdd \-i \-p \-R src/ dest/
+.TP
+.B Copy only new files not in reference:
+cpdd \-r /reference/ \-N \-R source/ /dest/
 .SH FILE MATCHING ALGORITHM
 .B cpdd
-uses a three-stage matching process for efficient deduplication:
+uses a multi-stage matching process for efficient deduplication:
 .IP 1. 4
 .B Size comparison
 \- Files must have identical size to be considered for matching.
 .IP 2. 4
-.B MD5 checksum
-\- Only calculated for files with non-unique sizes in the reference directory, providing an efficient pre-filter.
+.B Filename comparison (optional)
+\- When \fB\-\-match-name\fR is enabled, only files with matching basenames are considered.
 .IP 3. 4
+.B Block-based hash comparison
+\- Cached block hashes provide fast rejection of non-matching files.
+.IP 4. 4
 .B Byte-by-byte comparison
-\- Final verification ensures content is truly identical before linking.
+\- Final verification ensures content is truly identical before linking (skipped if \fB\-\-no-verify\fR is used).
 
-This approach minimizes expensive I/O operations while guaranteeing correctness.
+This approach minimizes expensive I/O operations while guaranteeing correctness. The \fB\-\-no-verify\fR option trades accuracy for speed by skipping the final content verification step.
 .SH EXIT STATUS
 .B cpdd
 exits with status 0 on success, 1 on error.
 .SH FILES
 No configuration files are used.
 .SH NOTES
-Hard links can only be created between files on the same filesystem. If hard linking fails, 
+Hard links can only be created between files on the same filesystem. If hard linking fails,
 .B cpdd
 will fall back to copying the file normally.
 
-Symbolic links contain the path to the target file and can span filesystems, but may break if the reference directory is moved or deleted.
+Symbolic links in reference directories or created with \fB\-s\fR contain the path to the target file and can span filesystems, but may break if the reference directory is moved or deleted.
+
+When copying symbolic links in the source:
+.IP \(bu 4
+By default, symbolic links are dereferenced (followed) and their target files are copied.
+.IP \(bu 4
+With \fB\-\-no-dereference\fR, symbolic links are copied as symbolic links (including broken ones).
+.IP \(bu 4
+With \fB\-\-skip-symlinks\fR, symbolic links are skipped entirely (not copied at all).
+.IP \(bu 4
+Broken symbolic links are skipped with a warning when dereferencing (default mode).
 .SH BUGS
 Report bugs at: https://github.com/32kb-net/cpdd/issues
 .SH AUTHOR

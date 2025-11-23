@@ -1,133 +1,193 @@
-CPDD(1)                          User Commands                         CPDD(1)
+4mCPDD24m(1)                          User Commands                         4mCPDD24m(1)
 
-
-
-NAME
+1mNAME0m
        cpdd - copy files with content-based deduplication
 
-SYNOPSIS
-       cpdd [OPTIONS] SOURCE... DESTINATION
+1mSYNOPSIS0m
+       1mcpdd 22m[4mOPTIONS24m] 4mSOURCE24m... 4mDESTINATION0m
 
-DESCRIPTION
-       cpdd  is  a file copy utility that provides content-based deduplication
+1mDESCRIPTION0m
+       1mcpdd  22mis  a file copy utility that provides content-based deduplication
        by linking to identical files in a reference directory. It performs ef-
-       ficient  three-stage matching: file size comparison, MD5 checksum veri-
+       ficient three-stage matching: file size comparison, MD5 checksum  veri-
        fication, and byte-by-byte content comparison.
 
-       When a reference directory is specified, files with  identical  content
+       When  a  reference directory is specified, files with identical content
        are linked (hard or symbolic) rather than copied, saving disk space and
        preserving storage efficiency.
 
-OPTIONS
-       -r, --reference DIR
-              Use DIR as reference directory for content-based linking.  Files
-              in  SOURCE  that  match content in DIR will be linked instead of
+1mOPTIONS0m
+       1m-r22m, 1m--reference 4m22mDIR0m
+              Use 4mDIR24m as reference directory for content-based linking.  Files
+              in  4mSOURCE24m  that  match content in 4mDIR24m will be linked instead of
               copied. Defaults to hard links.
 
-       -L, --hard-link
+       1m-L22m, 1m--hard-link0m
               Create hard links to reference files when content matches.  This
               is the default when a reference directory is specified.
 
-       -s, --symbolic-link
+       1m-s22m, 1m--symbolic-link0m
               Create symbolic links to reference files when content matches.
 
-       -R, --recursive
+       1m-R22m, 1m--recursive0m
               Copy directories recursively.
 
-       -n, --no-clobber
+       1m-n22m, 1m--no-clobber0m
               Never overwrite existing files.
 
-       -i, --interactive
+       1m-i22m, 1m--interactive0m
               Prompt before overwriting existing files.
 
-       -p     Preserve  file  attributes (equivalent to --preserve=mode,owner-
-              ship,timestamps).
+       1m-u22m, 1m--update0m
+              Overwrite only if source is newer than destination.
 
-       --preserve[=ATTR_LIST]
-              Preserve specified file attributes. If no  ATTR_LIST  is  given,
+       1m--dry-run0m
+              Show what would be done without actually doing it.
+
+       1m-N22m, 1m--only-new0m
+              Only copy files that don't exist in reference directories. Files
+              with identical content in the reference will be skipped entirely
+              (not  copied  or linked). Requires at least one reference direc-
+              tory (1m-r22m).
+
+       1m-p     22mPreserve file attributes (equivalent  to  1m--preserve=mode,owner-0m
+              1mship,timestamps22m).
+
+       1m--preserve22m[=4mATTR_LIST24m]
+              Preserve  specified  file  attributes. If no 4mATTR_LIST24m is given,
               preserves mode, ownership, and timestamps. Available attributes:
 
-              o   mode - file permissions
+              o   1mmode 22m- file permissions
 
-              o   ownership - user and group ownership
+              o   1mownership 22m- user and group ownership
 
-              o   timestamps - access and modification times
+              o   1mtimestamps 22m- access and modification times
 
-              o   all - all of the above
+              o   1mall 22m- all of the above
 
-       --stats
+       1m--stats0m
               Display statistics after the copy operation, including number of
               files copied, linked, and skipped.
 
-       -h, --human-readable
+       1m--block-size 4m22mSIZE0m
+              I/O block size for file operations. SIZE  can  be  specified  in
+              bytes  or with suffix K, M, G (e.g., 64K, 1M). Default: auto-de-
+              tect from filesystem.
+
+       1m-m22m, 1m--match-name0m
+              Match on filename in addition to size. When enabled, only refer-
+              ence files with the same basename as the  source  file  will  be
+              considered for matching. Size matching is always performed.
+
+       1m--no-verify0m
+              Skip  content comparison and accept matches based solely on size
+              and filename. Requires 1m--match-name 22mto be enabled. Use with cau-
+              tion as this may create links to files with different content if
+              they have the same size and name.
+
+       1m--no-dereference0m
+              Do not follow symbolic links. When  this  option  is  specified,
+              symbolic  links are copied as symbolic links rather than copying
+              the files they point to. Duplicate detection is skipped for sym-
+              bolic links. Without this option (default), symbolic  links  are
+              dereferenced  and  their  targets are copied. Mutually exclusive
+              with 1m--skip-symlinks22m.
+
+       1m--skip-symlinks0m
+              Skip symbolic links entirely. Symbolic links are neither  copied
+              nor  dereferenced  - they are simply ignored. Useful for copying
+              only regular files or when copying  to  filesystems  that  don't
+              support  symbolic  links.  Mutually exclusive with 1m--no-derefer-0m
+              1mence22m.
+
+       1m-h22m, 1m--human-readable0m
               Show file sizes in human-readable format (K, M, G) in statistics
               and verbose output.
 
-       -v, --verbose
-              Verbose  output showing files being processed and their disposi-
+       1m-v22m, 1m--verbose0m
+              Verbose output showing files being processed and their  disposi-
               tion.
 
-       --help Display help message and exit.
+       1m--help 22mDisplay help message and exit.
 
-EXAMPLES
-       Basic file copy:
+1mEXAMPLES0m
+       1mBasic file copy:0m
               cpdd file1.txt file2.txt /dest/
 
-       Recursive directory copy:
+       1mRecursive directory copy:0m
               cpdd -R src1/ src2/ /dest/
 
-       Copy with hard link deduplication:
+       1mCopy with hard link deduplication:0m
               cpdd -r /reference/ -R -v source/ /dest/
 
-       Copy with symbolic link deduplication:
+       1mCopy with symbolic link deduplication:0m
               cpdd -r /reference/ -s --stats source/ /dest/
 
-       Interactive copy preserving attributes:
+       1mInteractive copy preserving attributes:0m
               cpdd -i -p -R src/ dest/
 
-FILE MATCHING ALGORITHM
-       cpdd uses a three-stage matching process for efficient deduplication:
+       1mCopy only new files not in reference:0m
+              cpdd -r /reference/ -N -R source/ /dest/
 
-       1.  Size comparison - Files must have identical size to  be  considered
+1mFILE MATCHING ALGORITHM0m
+       1mcpdd 22muses a multi-stage matching process for efficient deduplication:
+
+       1.  1mSize  comparison  22m- Files must have identical size to be considered
            for matching.
 
-       2.  MD5  checksum  - Only calculated for files with non-unique sizes in
-           the reference directory, providing an efficient pre-filter.
+       2.  1mFilename comparison (optional) 22m- When 1m--match-name 22mis enabled, only
+           files with matching basenames are considered.
 
-       3.  Byte-by-byte comparison - Final  verification  ensures  content  is
-           truly identical before linking.
+       3.  1mBlock-based hash comparison 22m- Cached block hashes provide fast  re-
+           jection of non-matching files.
+
+       4.  1mByte-by-byte  comparison  22m-  Final  verification ensures content is
+           truly identical before linking (skipped if 1m--no-verify 22mis used).
 
            This approach minimizes expensive I/O operations while guaranteeing
-           correctness.
+           correctness. The 1m--no-verify 22moption trades accuracy  for  speed  by
+           skipping the final content verification step.
 
-EXIT STATUS
-       cpdd exits with status 0 on success, 1 on error.
+1mEXIT STATUS0m
+       1mcpdd 22mexits with status 0 on success, 1 on error.
 
-FILES
+1mFILES0m
        No configuration files are used.
 
-NOTES
+1mNOTES0m
        Hard links can only be created between files on the same filesystem. If
-       hard linking fails, cpdd will fall back to copying the file normally.
+       hard linking fails, 1mcpdd 22mwill fall back to copying the file normally.
 
-       Symbolic  links  contain  the  path  to  the  target  file and can span
-       filesystems, but may break if  the  reference  directory  is  moved  or
-       deleted.
+       Symbolic  links in reference directories or created with 1m-s 22mcontain the
+       path to the target file and can span filesystems, but may break if  the
+       reference directory is moved or deleted.
 
-BUGS
+       When copying symbolic links in the source:
+
+       o   By  default,  symbolic  links are dereferenced (followed) and their
+           target files are copied.
+
+       o   With 1m--no-dereference22m, symbolic links are copied as symbolic  links
+           (including broken ones).
+
+       o   With  1m--skip-symlinks22m,  symbolic  links  are  skipped entirely (not
+           copied at all).
+
+       o   Broken symbolic links are skipped with a warning when dereferencing
+           (default mode).
+
+1mBUGS0m
        Report bugs at: https://github.com/32kb-net/cpdd/issues
 
-AUTHOR
+1mAUTHOR0m
        Written by Lee de Byl <lee@32kb.net>.
 
-COPYRIGHT
+1mCOPYRIGHT0m
        Copyright (C) 2025 Lee de Byl. Licensed under the MIT License.  This is
        free software: you are free to change and redistribute it.  There is NO
        WARRANTY, to the extent permitted by law.
 
-SEE ALSO
-       cp(1), rsync(1), ln(1), find(1), md5sum(1)
+1mSEE ALSO0m
+       1mcp22m(1), 1mrsync22m(1), 1mln22m(1), 1mfind22m(1), 1mmd5sum22m(1)
 
-
-
-cpdd                                 2025                              CPDD(1)
+cpdd                                 2025                              4mCPDD24m(1)

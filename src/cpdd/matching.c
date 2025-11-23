@@ -27,49 +27,49 @@
 #include "md5.h"
 
 /* Initialize a new block cache to empty state */
-void init_hash_chain(hash_chain_t *cache) {
+void init_block_hashes(block_hashes_t *cache) {
     cache->block_md5s = NULL;
     cache->cached_blocks = 0;
     cache->allocated_blocks = 0;
 }
 
 /* Grow block cache by BLOCK_CACHE_GROW_SIZE blocks */
-int grow_hash_chain(hash_chain_t *chain) {
-    if (chain->allocated_blocks >= MAX_CACHED_BLOCKS) {
+int grow_block_hashes(block_hashes_t *hashes) {
+    if (hashes->allocated_blocks >= MAX_CACHED_BLOCKS) {
         return 0; /* Already at maximum size */
     }
     
-    int new_size = chain->allocated_blocks + BLOCK_CACHE_GROW_SIZE;
+    int new_size = hashes->allocated_blocks + BLOCK_CACHE_GROW_SIZE;
     if (new_size > MAX_CACHED_BLOCKS) {
         new_size = MAX_CACHED_BLOCKS;
     }
     
-    unsigned char (*new_blocks)[BLOCK_HASH_SIZE] = realloc(chain->block_md5s, 
+    unsigned char (*new_blocks)[BLOCK_HASH_SIZE] = realloc(hashes->block_md5s, 
                                                           new_size * BLOCK_HASH_SIZE);
     if (!new_blocks) {
         return -1; /* Memory allocation failed */
     }
     
-    chain->block_md5s = new_blocks;
-    chain->allocated_blocks = new_size;
+    hashes->block_md5s = new_blocks;
+    hashes->allocated_blocks = new_size;
     return 1; /* Success */
 }
 
 /* Free block cache memory */
-void free_hash_chain(hash_chain_t *chain) {
-    if (chain->block_md5s) {
-        free(chain->block_md5s);
-        chain->block_md5s = NULL;
+void free_block_hashes(block_hashes_t *hashes) {
+    if (hashes->block_md5s) {
+        free(hashes->block_md5s);
+        hashes->block_md5s = NULL;
     }
-    chain->cached_blocks = 0;
-    chain->allocated_blocks = 0;
+    hashes->cached_blocks = 0;
+    hashes->allocated_blocks = 0;
 }
 
 /* Update block cache with new block hash if needed */
 static int update_hash_chain(file_info_t *file, int block_num, 
                              const unsigned char *buffer, size_t bytes) {
     /* Only cache if we need to (beyond current cache) */
-    if (bytes == 0 || block_num < file->block_cache.cached_blocks) {
+    if (bytes == 0 || block_num < file->block_hashes.cached_blocks) {
         return 1; /* Nothing to do */
     }
     
@@ -79,8 +79,8 @@ static int update_hash_chain(file_info_t *file, int block_num,
     }
     
     /* Grow cache if needed */
-    if (block_num >= file->block_cache.allocated_blocks) {
-        if (grow_hash_chain(&file->block_cache) <= 0) {
+    if (block_num >= file->block_hashes.allocated_blocks) {
+        if (grow_block_hashes(&file->block_hashes) <= 0) {
             return 0; /* Can't grow cache */
         }
     }
@@ -88,8 +88,8 @@ static int update_hash_chain(file_info_t *file, int block_num,
     /* Calculate and store block hash */
     unsigned char block_hash[BLOCK_HASH_SIZE];
     calculate_block_hash(buffer, bytes, block_hash, BLOCK_HASH_SIZE);
-    memcpy(file->block_cache.block_md5s[block_num], block_hash, BLOCK_HASH_SIZE);
-    file->block_cache.cached_blocks = block_num + 1;
+    memcpy(file->block_hashes.block_md5s[block_num], block_hash, BLOCK_HASH_SIZE);
+    file->block_hashes.cached_blocks = block_num + 1;
     
     return 1; /* Success */
 }
@@ -97,7 +97,7 @@ static int update_hash_chain(file_info_t *file, int block_num,
 
 /* Block-based file comparison with dynamic cache growth.
  * 1. First check cached blocks from reference file for fast rejection
- * 2. If cached blocks match, do full bytewise comparison from beginning  
+ * 2. If cached blocks match, do full bytewise comparison from beginning
  * 3. Build block cache for both files during comparison
  * 4. Stop caching at first mismatch or when cache is full
  */
@@ -110,12 +110,12 @@ match_result_t files_match(file_info_t *ref_file, file_info_t *src_file) {
     
     
     /* Phase 1: Fast rejection using cached blocks (pure memory comparison) */
-    int common_cached_blocks = (ref_file->block_cache.cached_blocks < src_file->block_cache.cached_blocks) ?
-                               ref_file->block_cache.cached_blocks : src_file->block_cache.cached_blocks;
-    
+    int common_cached_blocks = (ref_file->block_hashes.cached_blocks < src_file->block_hashes.cached_blocks) ?
+                               ref_file->block_hashes.cached_blocks : src_file->block_hashes.cached_blocks;
+
     if (common_cached_blocks > 0) {
         /* Compare all common cached blocks in one memcmp since they're contiguous */
-        if (memcmp(ref_file->block_cache.block_md5s, src_file->block_cache.block_md5s, 
+        if (memcmp(ref_file->block_hashes.block_md5s, src_file->block_hashes.block_md5s,
                    common_cached_blocks * BLOCK_HASH_SIZE) != 0) {
             return MATCH_FAIL_HASHES; /* Fast rejection - cached blocks differ */
         }
@@ -201,8 +201,12 @@ static void collect_file_info(const char *ref_dir, const options_t *opts, int *c
             new_file->path = strdup(full_path);
             new_file->size = st.st_size;
 
+            /* Set basename as pointer into path */
+            new_file->basename = strrchr(new_file->path, '/');
+            new_file->basename = new_file->basename ? new_file->basename + 1 : new_file->path;
+
             /* Initialize block cache */
-            init_hash_chain(&new_file->block_cache);
+            init_block_hashes(&new_file->block_hashes);
             
             new_file->next = *head;
             *head = new_file;
@@ -221,6 +225,24 @@ static int compare_file_info_size(const void *a, const void *b) {
     file_info_t *file_a = *(file_info_t **)a;
     file_info_t *file_b = *(file_info_t **)b;
     return (file_a->size > file_b->size) - (file_a->size < file_b->size);
+}
+
+static int find_first_size_match(ref_files_t *ref_files, off_t target_size) {
+    int left = 0, right = ref_files->count - 1;
+    int first_match = -1;
+    
+    while (left <= right) {
+        int mid = left + (right - left) / 2;
+        if (ref_files->files[mid]->size == target_size) {
+            first_match = mid;
+            right = mid - 1;  /* Continue searching left for first occurrence */
+        } else if (ref_files->files[mid]->size < target_size) {
+            left = mid + 1;
+        } else {
+            right = mid - 1;
+        }
+    }
+    return first_match;  /* -1 if not found */
 }
 
 
@@ -293,13 +315,13 @@ ref_files_t *scan_reference_directory(const options_t *opts, stats_t *stats) {
 
 /* Updates the global hash cache stattstics */
 static void update_hash_stats(stats_t *stats, file_info_t *file) {
-    if (file->block_cache.cached_blocks > 0) {
-        stats->total_cache_depth += file->block_cache.cached_blocks;
-        if (file->block_cache.cached_blocks < stats->min_cache_depth || stats->min_cache_depth == 0) {
-            stats->min_cache_depth = file->block_cache.cached_blocks;
+    if (file->block_hashes.cached_blocks > 0) {
+        stats->total_cache_depth += file->block_hashes.cached_blocks;
+        if (file->block_hashes.cached_blocks < stats->min_cache_depth || stats->min_cache_depth == 0) {
+            stats->min_cache_depth = file->block_hashes.cached_blocks;
         }
-        if (file->block_cache.cached_blocks > stats->max_cache_depth) {
-            stats->max_cache_depth = file->block_cache.cached_blocks;
+        if (file->block_hashes.cached_blocks > stats->max_cache_depth) {
+            stats->max_cache_depth = file->block_hashes.cached_blocks;
         }
     }
 }
@@ -308,6 +330,10 @@ static void update_hash_stats(stats_t *stats, file_info_t *file) {
    This is the main matching algorithm. */
 file_info_t *find_matching_file(ref_files_t *ref_files, const char *src_file, const options_t *opts, stats_t *stats) {
     struct stat st;
+
+    if (ref_files == NULL || ref_files->count == 0) {
+        return NULL; /* No reference files available */
+    }
 
     if (stat(src_file, &st) != 0) {
         fprintf(stderr, "Error: Cannot stat source file %s\n", src_file);
@@ -319,37 +345,44 @@ file_info_t *find_matching_file(ref_files_t *ref_files, const char *src_file, co
     src_info.path = (char *)src_file;
     src_info.size = st.st_size;
     src_info.next = NULL;
-    init_hash_chain(&src_info.block_cache);
+
+    /* Set basename as pointer into path */
+    src_info.basename = strrchr(src_info.path, '/');
+    src_info.basename = src_info.basename ? src_info.basename + 1 : src_info.path;
+
+    init_block_hashes(&src_info.block_hashes);
 
     file_info_t *match = NULL;
 
-    /* Binary search for the first file with matching size */
-    int left = 0, right = ref_files->count - 1;
-    int first_match = -1;
-
     stats->total_source_files++; /* TODO: This shouldn't be here!*/ 
     
-    while (left <= right) {
-        int mid = left + (right - left) / 2;
-        if (ref_files->files[mid]->size == st.st_size) {
-            first_match = mid;
-            right = mid - 1; /* Continue searching left for first occurrence */
-        } else if (ref_files->files[mid]->size < st.st_size) {
-            left = mid + 1;
-        } else {
-            right = mid - 1;
-        }
-    }
-    
-    /* No files with matching size found */
+    /* Find first file with matching size */
+    int first_match = find_first_size_match(ref_files, st.st_size);
     if (first_match == -1) {
-        return NULL;
+        return NULL;  /* No files with matching size found */
     }
 
     /* Check all files with the same size starting from first_match */
     for (int i = first_match; i < ref_files->count && ref_files->files[i]->size == st.st_size; i++) {
         file_info_t *current = ref_files->files[i];
-        
+
+        /* If name matching is enabled, check if basenames match */
+        if (opts->match_name && strcmp(src_info.basename, current->basename) != 0) {
+            continue; /* Names don't match, skip this file */
+        }
+
+        /* At this point we have a size match (and name match if enabled) */
+        /* Decide whether to verify contents */
+        if (opts->no_verify) {
+            /* Accept match based on size and name only, no content verification */
+            if (opts->verbose) {
+                printf("Match found (size+name, no verification): %s matches %s\n", src_file, current->path);
+            }
+            match = current;
+            break;
+        }
+
+        /* Perform content verification */
         stats->files_compared++;
 
         switch (files_match(current, &src_info)) {
@@ -368,7 +401,7 @@ file_info_t *find_matching_file(ref_files_t *ref_files, const char *src_file, co
                 /* Failed during bytewise comparison - Files don't match */
                 break;
             case MATCH_ERROR:
-                fprintf(stderr, "Error: File comparison failed between %s and %s\n", 
+                fprintf(stderr, "Error: File comparison failed between %s and %s\n",
                         src_file, current->path);
                 break;
         }
@@ -386,7 +419,7 @@ void free_file_list(file_info_t *list) {
     while (current) {
         next = current->next;
         free(current->path);
-        free_hash_chain(&current->block_cache);
+        free_block_hashes(&current->block_hashes);
         free(current);
         current = next;
     }
@@ -399,7 +432,7 @@ void free_sorted_file_info(ref_files_t *sorted_files) {
     for (int i = 0; i < sorted_files->count; i++) {
         if (sorted_files->files[i]) {
             free(sorted_files->files[i]->path);
-            free_hash_chain(&sorted_files->files[i]->block_cache);
+            free_block_hashes(&sorted_files->files[i]->block_hashes);
             free(sorted_files->files[i]);
         }
     }

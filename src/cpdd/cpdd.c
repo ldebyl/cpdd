@@ -24,6 +24,9 @@
 
 #include "cpdd.h"
 
+/* Global verbose flag definition */
+int g_verbose = 0;
+
 // Signal handler to clean up incomplete file on termination
 static void signal_handler(int sig) {
     cleanup_incomplete_file();

@@ -73,11 +73,18 @@ void print_usage(const char *program_name) {
     printf("  -i, --interactive      Prompt before overwrite\n");
     printf("  -u, --update           Overwrite only if source is newer than destination\n");
     printf("  --dry-run              Show what would be done without actually doing it\n");
+    printf("  -N, --only-new         Only copy files that don't exist in reference directories\n");
     printf("  -p                     Same as --preserve=mode,ownership,timestamps\n");
     printf("  --preserve[=ATTR_LIST] Preserve the specified attributes\n");
     printf("                           (default: mode,ownership,timestamps)\n");
     printf("                         Additional attributes: all\n");
     printf("  --stats                Show statistics after operation\n");
+    printf("  --block-size SIZE      I/O block size (default: auto-detect from filesystem)\n");
+    printf("                           SIZE can be bytes or with suffix K, M, G (e.g., 64K, 1M)\n");
+    printf("  -m, --match-name       Match on filename in addition to size\n");
+    printf("  --no-verify            Skip content comparison (requires --match-name)\n");
+    printf("  --no-dereference       Don't follow symbolic links (copy them as-is)\n");
+    printf("  --skip-symlinks        Skip symbolic links entirely (don't copy them or their targets)\n");
     printf("  -h, --human-readable   Show file sizes in human readable format\n");
     printf("  -v, --verbose          Verbose output (use multiple times for more verbosity: -vv, -vvv)\n");
     printf("  --help                 Show this help message\n");
@@ -107,8 +114,14 @@ int parse_args(int argc, char *argv[], options_t *opts) {
         {"interactive",   no_argument,       0, 'i'},
         {"update",        no_argument,       0, 'u'},
         {"dry-run",       no_argument,       0, 'D'},
+        {"only-new",      no_argument,       0, 'N'},
         {"preserve",      optional_argument, 0, 'P'},
         {"stats",         no_argument,       0, 'S'},
+        {"block-size",    required_argument, 0, 'B'},
+        {"match-name",    no_argument,       0, 'm'},
+        {"no-verify",     no_argument,       0, 'V'},
+        {"no-dereference", no_argument,      0, 'd'},
+        {"skip-symlinks", no_argument,       0, 'k'},
         {"human-readable", no_argument,      0, 'h'},
         {"verbose",       no_argument,       0, 'v'},
         {"help",          no_argument,       0, 'H'},
@@ -127,14 +140,21 @@ int parse_args(int argc, char *argv[], options_t *opts) {
     opts->interactive = 0;
     opts->update = 0;
     opts->dry_run = 0;
+    opts->only_new = 0;
     opts->show_stats = 0;
     opts->human_readable = 0;
+    opts->match_name = 0;
+    opts->no_verify = 0;
+    opts->no_dereference = 0;
+    opts->skip_symlinks = 0;
+    opts->block_size = 0;  /* 0 = auto-detect */
     opts->preserve.mode = 0;
     opts->preserve.ownership = 0;
     opts->preserve.timestamps = 0;
     opts->preserve.all = 0;
+    g_verbose = 0; // Global verbosity level for logging macros
     
-    while ((opt = getopt_long(argc, argv, "r:LsRniupvhSH", long_options, &option_index)) != -1) {
+    while ((opt = getopt_long(argc, argv, "r:LsRniuNpvhmPSH", long_options, &option_index)) != -1) {
         switch (opt) {
             case 'r': {
                 opts->ref_dir_count++;
@@ -188,6 +208,9 @@ int parse_args(int argc, char *argv[], options_t *opts) {
             case 'D':
                 opts->dry_run = 1;
                 break;
+            case 'N':
+                opts->only_new = 1;
+                break;
             case 'p':
                 opts->preserve.mode = 1;
                 opts->preserve.ownership = 1;
@@ -206,6 +229,26 @@ int parse_args(int argc, char *argv[], options_t *opts) {
                 break;
             case 'S':
                 opts->show_stats = 1;
+                break;
+            case 'B': {
+                opts->block_size = parse_size(optarg);
+                if (opts->block_size == 0) {
+                    fprintf(stderr, "Error: Invalid block size '%s'\n", optarg);
+                    return -1;
+                }
+                break;
+            }
+            case 'm':
+                opts->match_name = 1;
+                break;
+            case 'V':
+                opts->no_verify = 1;
+                break;
+            case 'd':
+                opts->no_dereference = 1;
+                break;
+            case 'k':
+                opts->skip_symlinks = 1;
                 break;
             case 'h':
                 opts->human_readable = 1;
@@ -234,15 +277,42 @@ int parse_args(int argc, char *argv[], options_t *opts) {
     opts->sources = &argv[optind];
     opts->dest_dir = argv[argc - 1];
     
-    /* Set hard links as default when reference directory is specified */
-    if (opts->ref_dir_count > 0 && opts->link_type == LINK_NONE) {
+    /* Validate --only-new requirements and conflicts */
+    if (opts->only_new) {
+        if (opts->ref_dir_count == 0) {
+            fprintf(stderr, "Error: --only-new requires at least one reference directory (-r)\n");
+            return -1;
+        }
+        if (opts->link_type != LINK_NONE) {
+            fprintf(stderr, "Error: --only-new cannot be used with --hard-link or --symbolic-link\n");
+            return -1;
+        }
+    }
+
+    /* Validate --no-verify requirements */
+    if (opts->no_verify && !opts->match_name) {
+        fprintf(stderr, "Error: --no-verify requires --match-name\n");
+        return -1;
+    }
+
+    /* Validate symlink options are mutually exclusive */
+    if (opts->no_dereference && opts->skip_symlinks) {
+        fprintf(stderr, "Error: --no-dereference and --skip-symlinks are mutually exclusive\n");
+        return -1;
+    }
+
+    /* Set hard links as default when reference directory is specified (unless --only-new) */
+    if (opts->ref_dir_count > 0 && opts->link_type == LINK_NONE && !opts->only_new) {
         opts->link_type = LINK_HARD;
     }
-    
+
     if (opts->link_type != LINK_NONE && opts->ref_dir_count == 0) {
         fprintf(stderr, "Error: Link type specified but no reference directory provided\n");
         return -1;
     }
+
+    /* Set global verbosity for logging macros */
+    g_verbose = opts->verbose;
     
     return 0;
 }

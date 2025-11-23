@@ -1,106 +1,104 @@
-SYNDIR(1)                        User Commands                       SYNDIR(1)
+4mSYNDIR24m(1)                        User Commands                       4mSYNDIR24m(1)
 
-
-
-NAME
+1mNAME0m
        syndir  - generate test directory structures with configurable file du-
        plication
 
-SYNOPSIS
-       syndir [OPTIONS] REF_ROOT SRC_ROOT
+1mSYNOPSIS0m
+       1msyndir 22m[4mOPTIONS24m] 4mREF_ROOT24m 4mSRC_ROOT0m
 
-DESCRIPTION
-       syndir is a test data  generator  designed  to  create  realistic  file
-       structures  for testing content-based deduplication tools like cpdd(1).
+1mDESCRIPTION0m
+       1msyndir 22mis a test data  generator  designed  to  create  realistic  file
+       structures  for testing content-based deduplication tools like 1mcpdd22m(1).
        It creates two directory trees: a  reference  directory  with  randomly
        generated files, and a source directory where a configurable percentage
-       of files have identical content to reference files but different  names
+       of  files have identical content to reference files but different names
        and locations.
 
-       syndir  uses  realistic  file  size distributions and supports advanced
-       size control for testing various scenarios from small document  collec-
+       1msyndir 22muses realistic file size  distributions  and  supports  advanced
+       size  control for testing various scenarios from small document collec-
        tions to large media files.
 
-OPTIONS
-       -f, --files COUNT
-              Generate COUNT files in total (default: 100). Files are distrib-
+1mOPTIONS0m
+       1m-f22m, 1m--files 4m22mCOUNT0m
+              Generate 4mCOUNT24m files in total (default: 100). Files are distrib-
               uted between reference and source directories.
 
-       -d, --dirs COUNT
-              Create COUNT directories in each tree (default: 10). Use  0  for
+       1m-d22m, 1m--dirs 4m22mCOUNT0m
+              Create 4mCOUNT24m directories in each tree (default: 10). Use  0  for
               flat directory structure.
 
-       -p, --percent PCT
+       1m-p22m, 1m--percent 4m22mPCT0m
               Percentage  of  source  files  that  duplicate reference content
               (0-100, default: 30). Higher values  create  more  deduplication
               opportunities.
 
-       --size-p50 SIZE
+       1m--size-p50 4m22mSIZE0m
               50th percentile file size in bytes (default: 4096). Half of gen-
               erated files will be smaller than this size.
 
-       --size-p95 SIZE
+       1m--size-p95 4m22mSIZE0m
               95th percentile file size in bytes (default: 65536). 95% of gen-
               erated files will be smaller than this size.
 
-       --size-max SIZE
+       1m--size-max 4m22mSIZE0m
               Maximum file size in bytes (default: 1048576). No files will ex-
               ceed this size.
 
-       --size-scale FACTOR
+       1m--size-scale 4m22mFACTOR0m
               Scale all file sizes by this factor (default: 1.0). Use values >
               1.0 for larger files, < 1.0 for smaller files.
 
-       --seed SEED
+       1m--seed 4m22mSEED0m
               Sets  the  seed for random generation. Set this for reproducible
               generation.
 
-       -v, --verbose
+       1m-v22m, 1m--verbose0m
               Show verbose output during  generation,  including  files  being
               created and their sizes.
 
-       -h, --help
+       1m-h22m, 1m--help0m
               Display help message and exit.
 
-EXAMPLES
-       Basic test data generation:
+1mEXAMPLES0m
+       1mBasic test data generation:0m
               syndir /tmp/ref /tmp/src
 
-       High duplication scenario:
+       1mHigh duplication scenario:0m
               syndir -f 200 -d 20 -p 80 /tmp/ref /tmp/src
 
-       Large test set with verbose output:
+       1mLarge test set with verbose output:0m
               syndir -v -f 1000 -d 50 -p 60 /tmp/ref /tmp/src
 
-       Small files (document-like):
+       1mSmall files (document-like):0m
               syndir --size-p50 1024 --size-p95 8192 --size-max 32768 /tmp/ref
               /tmp/src
 
-       Large files (media-like):
+       1mLarge files (media-like):0m
               syndir --size-scale 1000 -f 50 /tmp/ref /tmp/src
 
-       Complete testing workflow:
+       1mComplete testing workflow:0m
               syndir -v -f 500 -p 50 /tmp/ref /tmp/src
               cpdd -r /tmp/ref -v --stats /tmp/src /tmp/dest
               du -sh /tmp/ref /tmp/src /tmp/dest
 
-FILE SIZE DISTRIBUTION
-       syndir generates files with realistic  size  distributions  using  per-
+1mFILE SIZE DISTRIBUTION0m
+       1msyndir  22mgenerates  files  with  realistic size distributions using per-
        centile-based parameters:
 
-       o   50% of files are smaller than --size-p50
+       o   50% of files are smaller than 1m--size-p500m
 
-       o   95% of files are smaller than --size-p95
+       o   95% of files are smaller than 1m--size-p950m
 
-       o   All files are smaller than --size-max
+       o   All files are smaller than 1m--size-max0m
 
-       o   The --size-scale factor multiplies all sizes uniformly
+       o   The 1m--size-scale 22mfactor multiplies all sizes uniformly
 
-           This  approach  creates natural distributions similar to real-world
+           This approach creates natural distributions similar  to  real-world
            file collections.
 
-DUPLICATION STRATEGY
-       For source files designated as duplicates (based on --percent):
+1mDUPLICATION STRATEGY0m
+       For source files designated as duplicates (based on 1m--percent22m):
 
        1.  A reference file is randomly selected
 
@@ -110,49 +108,47 @@ DUPLICATION STRATEGY
 
        4.  This creates perfect deduplication candidates for testing
 
-           Non-duplicate files contain unique random content generated from  a
+           Non-duplicate  files contain unique random content generated from a
            pseudorandom source.
 
-EXIT STATUS
-       syndir exits with status 0 on success, 1 on error.
+1mEXIT STATUS0m
+       1msyndir 22mexits with status 0 on success, 1 on error.
 
-FILES
+1mFILES0m
        No configuration files are used. All generated content is pseudorandom.
 
-NOTES
+1mNOTES0m
        Generated directories should be cleaned up after testing:
 
            rm -rf /tmp/ref /tmp/src /tmp/dest
 
-       The  size  percentile  parameters  must be in ascending order: p50  p95
+       The size percentile parameters must be in  ascending  order:  p50   p95
        max.
 
-       For testing scenarios, typical duplication percentages range  from  20%
+       For  testing  scenarios, typical duplication percentages range from 20%
        (conservative) to 80% (aggressive deduplication scenarios).
 
-EXAMPLES DIRECTORY
-       The syndir distribution includes example scripts:
+1mEXAMPLES DIRECTORY0m
+       The 1msyndir 22mdistribution includes example scripts:
 
-       examples/demo.sh
+       1mexamples/demo.sh0m
               Complete demonstration of syndir and cpdd working together
 
-       examples/usage.sh
+       1mexamples/usage.sh0m
               Interactive testing scenarios
 
-BUGS
+1mBUGS0m
        Report bugs at: https://github.com/32kb-net/cpdd/issues
 
-AUTHOR
+1mAUTHOR0m
        Written by Lee de Byl <lee@32kb.net>.
 
-COPYRIGHT
+1mCOPYRIGHT0m
        Copyright (C) 2025 Lee de Byl. Licensed under the MIT License.  This is
        free software: you are free to change and redistribute it.  There is NO
        WARRANTY, to the extent permitted by law.
 
-SEE ALSO
-       cpdd(1), cp(1), find(1), du(1), ls(1)
+1mSEE ALSO0m
+       1mcpdd22m(1), 1mcp22m(1), 1mfind22m(1), 1mdu22m(1), 1mls22m(1)
 
-
-
-syndir                               2025                            SYNDIR(1)
+syndir                               2025                            4mSYNDIR24m(1)
