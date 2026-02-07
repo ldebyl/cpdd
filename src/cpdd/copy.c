@@ -24,74 +24,67 @@
 
 #include "cpdd.h"
 
-// Path of the file currently being copied (for cleanup on signal)
+/* Path of file being copied, for cleanup on signal */
 static char *current_incomplete_file = NULL;
 
-/* File operation wrappers that handle dry run */
-static int file_unlink(const char *path, const options_t *opts) {
-    if (opts->dry_run) {
-        return 0;  /* Pretend success */
-    }
+/* Unlink wrapper that respects dry-run mode */
+static int file_unlink(const char *path, const options_t *opts)
+{
+    if (opts->dry_run)
+        return 0;
     return unlink(path);
 }
 
-static int file_link(const char *oldpath, const char *newpath, const options_t *opts) {
-    if (opts->dry_run) {
-        return 0;  /* Pretend success */
-    }
+/* Hard link wrapper that respects dry-run mode */
+static int file_link(const char *oldpath, const char *newpath, const options_t *opts)
+{
+    if (opts->dry_run)
+        return 0;
     return link(oldpath, newpath);
 }
 
-static int file_symlink(const char *target, const char *linkpath, const options_t *opts) {
-    if (opts->dry_run) {
-        return 0;  /* Pretend success */
-    }
+/* Symbolic link wrapper that respects dry-run mode */
+static int file_symlink(const char *target, const char *linkpath, const options_t *opts)
+{
+    if (opts->dry_run)
+        return 0;
     return symlink(target, linkpath);
 }
 
-static int file_copy(const char *src, const char *dest, const options_t *opts, struct stat *src_st) {
-    if (opts->dry_run) {
-        return src_st->st_size;  /* Return bytes that would be copied */
-    }
-    
-    /* Get optimal block size for this file */
+/* Copy file contents from src to dest. Returns bytes copied or -1 on error */
+static off_t file_copy(const char *src, const char *dest, const options_t *opts, struct stat *src_st)
+{
+    if (opts->dry_run)
+        return src_st->st_size;
+
     size_t block_size = get_optimal_block_size(src, opts);
-    
-    /* Show block size info in verbose mode if auto-detected */
-    if (opts->verbose && opts->block_size == 0) {
-        VERBOSE("Using block size %zu bytes for %s\n", block_size, src);
-    }
-    
-    /* Actual file copy implementation */
+
+    if (opts->verbose >= 3 && opts->block_size == 0)
+        print_verbose("Using block size %zu bytes for %s", block_size, src);
+
     int src_fd, dest_fd;
     char *buffer;
     ssize_t bytes_read, bytes_written;
-    
-    /* Allocate buffer based on optimal block size */
+
     buffer = malloc(block_size);
-    if (!buffer) {
+    if (!buffer)
         return -1;
-    }
-    
-    // Open source file for reading
+
     src_fd = open(src, O_RDONLY);
     if (src_fd < 0) {
         free(buffer);
         return -1;
     }
 
-    // Open destination file for writing (create/truncate)
     dest_fd = open(dest, O_WRONLY | O_CREAT | O_TRUNC, src_st->st_mode);
     if (dest_fd < 0) {
         close(src_fd);
         free(buffer);
         return -1;
     }
-    
-    // Register the incomplete file for cleanup on signals
+
     register_incomplete_file(dest);
-    
-    // Perform the copy
+
     while ((bytes_read = read(src_fd, buffer, block_size)) > 0) {
         bytes_written = write(dest_fd, buffer, bytes_read);
         if (bytes_written != bytes_read) {
@@ -102,29 +95,28 @@ static int file_copy(const char *src, const char *dest, const options_t *opts, s
             return -1;
         }
     }
-    
+
     close(src_fd);
     close(dest_fd);
     free(buffer);
-    
-    // Unregister the incomplete file since copy succeeded
     unregister_incomplete_file();
-    
-    if (bytes_read < 0) {
+
+    if (bytes_read < 0)
         return -1;
-    }
-    
-    return src_st->st_size;  /* Return bytes copied */
+
+    return src_st->st_size;
 }
 
-// Signal handler to clean up incomplete file on termination
-static void signal_handler(int sig) {
+/* Clean up incomplete file and exit on signal */
+static void signal_handler(int sig)
+{
     cleanup_incomplete_file();
     exit(128 + sig);
 }
 
-// Sets up signal handlers for SIGINT and SIGTERM
-void setup_signal_handlers(void) {
+/* Register handlers for common termination signals */
+void setup_signal_handlers(void)
+{
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
     signal(SIGHUP, signal_handler);
@@ -132,24 +124,26 @@ void setup_signal_handlers(void) {
     signal(SIGPIPE, signal_handler);
 }
 
-// Registers the path of the file currently being copied
-void register_incomplete_file(const char *path) {
-    if (current_incomplete_file) {
+/* Track file being written for cleanup on interrupt */
+void register_incomplete_file(const char *path)
+{
+    if (current_incomplete_file)
         free(current_incomplete_file);
-    }
     current_incomplete_file = strdup(path);
 }
 
-// Unregisters the current incomplete file without deleting it
-void unregister_incomplete_file(void) {
+/* Clear incomplete file tracking without deleting */
+void unregister_incomplete_file(void)
+{
     if (current_incomplete_file) {
         free(current_incomplete_file);
         current_incomplete_file = NULL;
     }
 }
 
-// Cleans up the incomplete file if it exists
-void cleanup_incomplete_file(void) {
+/* Delete incomplete file if one is registered */
+void cleanup_incomplete_file(void)
+{
     if (current_incomplete_file) {
         unlink(current_incomplete_file);
         unregister_incomplete_file();
@@ -164,19 +158,17 @@ static int copy_symlink(const char *src, const char *dest, const options_t *opts
     /* Read the symlink target */
     len = readlink(src, link_target, sizeof(link_target) - 1);
     if (len == -1) {
-        fprintf(stderr, "Error: Cannot read symlink %s: %s\n", src, strerror(errno));
+        print_error("Cannot read symlink %s: %s", src, strerror(errno));
         return -1;
     }
     link_target[len] = '\0';
 
     if (opts->dry_run) {
-        if (opts->verbose) {
-            print_verbose("[DRY RUN] %s[SYMLINK]%s %s %s->%s %s %s(target: %s)%s",
-                        color_cyan(), color_reset(),
-                        src,
+        if (opts->verbose >= 1) {
+            print_verbose("%s[DRY RUN]%s %s[SYMLINK]%s '%s' -> '%s'",
                         color_dim(), color_reset(),
-                        dest,
-                        color_dim(), link_target, color_reset());
+                        color_cyan(), color_reset(),
+                        src, dest);
         }
         return 0;
     }
@@ -186,26 +178,22 @@ static int copy_symlink(const char *src, const char *dest, const options_t *opts
 
     /* Create the new symlink */
     if (symlink(link_target, dest) != 0) {
-        fprintf(stderr, "Error: Cannot create symlink %s: %s\n", dest, strerror(errno));
+        print_error("Cannot create symlink %s: %s", dest, strerror(errno));
         return -1;
     }
 
-    if (opts->verbose) {
-        print_verbose("%s[SYMLINK]%s %s %s->%s %s %s(target: %s)%s",
+    if (opts->verbose >= 1) {
+        print_verbose("%s[SYMLINK]%s '%s' -> '%s'",
                     color_cyan(), color_reset(),
-                    src,
-                    color_dim(), color_reset(),
-                    dest,
-                    color_dim(), link_target, color_reset());
+                    src, dest);
     }
 
     return 0;
 }
 
-/* Given source and destination files, determine if destination should be overwritten
- * by checking if destination exists, user preferences for --no-clobber, --update,
- * and optionally asking interactively */
-int should_overwrite(const char *src_path, const char *dest_path, const options_t *opts) {
+/* Check if dest should be overwritten based on options and timestamps */
+int should_overwrite(const char *src_path, const char *dest_path, const options_t *opts)
+{
     struct stat dest_st, src_st;
     
     if (stat(dest_path, &dest_st) != 0) {
@@ -238,8 +226,9 @@ int should_overwrite(const char *src_path, const char *dest_path, const options_
     return 1; /* Default: overwrite */
 }
 
-/* Given a source and destination, propagates attributes between them */
-int preserve_file_attributes(const char *src, const char *dest, const preserve_t *preserve) {
+/* Copy file attributes (mode, ownership, timestamps) from src to dest */
+int preserve_file_attributes(const char *src, const char *dest, const preserve_t *preserve)
+{
     struct stat src_st;
     struct utimbuf times;
     
@@ -270,8 +259,9 @@ int preserve_file_attributes(const char *src, const char *dest, const preserve_t
     return 0;
 }
 
-/* Parse size string with K/M/G suffixes (like dd bs= parameter) */
-size_t parse_size(const char *size_str) {
+/* Parse size string with K/M/G suffixes, e.g. "64K" or "1M" */
+size_t parse_size(const char *size_str)
+{
     char *endptr;
     unsigned long long value = strtoull(size_str, &endptr, 10);
     
@@ -307,8 +297,9 @@ size_t parse_size(const char *size_str) {
     return (size_t)value;
 }
 
-/* Get optimal block size for file I/O */
-size_t get_optimal_block_size(const char *filename, const options_t *opts) {
+/* Return optimal I/O block size for file, or user override if set */
+size_t get_optimal_block_size(const char *filename, const options_t *opts)
+{
     if (opts->block_size > 0) {
         return opts->block_size;  /* User override */
     }
@@ -322,8 +313,9 @@ size_t get_optimal_block_size(const char *filename, const options_t *opts) {
     return BUFFER_SIZE;  /* Fallback to default */
 }
 
-/* Formats byte counts with human-readable quantities */
-void format_bytes(off_t bytes, int human_readable, char *buffer, size_t buffer_size) {
+/* Format byte count as human-readable string (e.g. "1.5M") */
+void format_bytes(off_t bytes, int human_readable, char *buffer, size_t buffer_size)
+{
     if (!human_readable) {
         snprintf(buffer, buffer_size, "%lld bytes", (long long)bytes);
         return;
@@ -349,8 +341,9 @@ void format_bytes(off_t bytes, int human_readable, char *buffer, size_t buffer_s
     }
 }
 
-/* String formats statistics from a copy operation. */
-void format_stats_line(const stats_t *stats, int human_readable, char *buffer, size_t buffer_size) {
+/* Format one-line summary of copy statistics */
+void format_stats_line(const stats_t *stats, int human_readable, char *buffer, size_t buffer_size)
+{
     char total_bytes_str[32];
     off_t total_bytes = stats->bytes_copied + stats->bytes_hard_linked + stats->bytes_soft_linked;
     int total_files = stats->files_copied + stats->files_hard_linked + stats->files_soft_linked;
@@ -363,8 +356,9 @@ void format_stats_line(const stats_t *stats, int human_readable, char *buffer, s
 }
 
 
-/* Prints final statistics */
-void print_statistics(const stats_t *stats, int human_readable) {
+/* Print detailed final statistics to stderr */
+void print_statistics(const stats_t *stats, int human_readable)
+{
     char copied_bytes[32], linked_bytes[32], soft_linked_bytes[32];
     
     format_bytes(stats->bytes_copied, human_readable, copied_bytes, sizeof(copied_bytes));
@@ -376,6 +370,9 @@ void print_statistics(const stats_t *stats, int human_readable) {
     fprintf(stderr, "  Files hard linked: %s%d%s (%s)\n", color_blue(), stats->files_hard_linked, color_reset(), linked_bytes);
     fprintf(stderr, "  Files soft linked: %s%d%s (%s)\n", color_blue(), stats->files_soft_linked, color_reset(), soft_linked_bytes);
     fprintf(stderr, "  Files skipped:     %s%d%s\n", color_yellow(), stats->files_skipped, color_reset());
+    if (stats->files_failed > 0) {
+        fprintf(stderr, "  Files failed:      %s%d%s\n", color_red(), stats->files_failed, color_reset());
+    }
 
     off_t total_bytes = stats->bytes_copied + stats->bytes_hard_linked + stats->bytes_soft_linked;
     int total_files = stats->files_copied + stats->files_hard_linked + stats->files_soft_linked;
@@ -410,13 +407,17 @@ void print_statistics(const stats_t *stats, int human_readable) {
         fprintf(stderr, "  Unique ref sizes: %.1f%% (higher = fewer opportunities for matching)\n", ref_unique_pct);
         fprintf(stderr, "  Size matches:     %.1f%% (files that proceeded to content comparison)\n", size_match_pct);
     }
+
+    if (stats->index_memory > 0) {
+        char mem_str[32];
+        format_bytes((off_t)stats->index_memory, human_readable, mem_str, sizeof(mem_str));
+        fprintf(stderr, "\n%sIndex Memory:%s      %s\n", color_cyan(), color_reset(), mem_str);
+    }
 }
 
-/* Ensures that the directory structure for dest_path exists,
- * creating directories as needed, using the permissions of
- * the source path or its parent directory */
-/* Create directory with proper permissions, handling dry run */
-static int create_directory(const char *path, mode_t mode, const options_t *opts) {
+/* Create directory with given mode, respecting dry-run */
+static int create_directory(const char *path, mode_t mode, const options_t *opts)
+{
     if (opts->dry_run) {
         return 0; /* Pretend success */
     }
@@ -428,7 +429,8 @@ static int create_directory(const char *path, mode_t mode, const options_t *opts
 }
 
 /* Create parent directories recursively (mkdir -p style) */
-static int create_parent_directories(const char *path, mode_t default_mode, const options_t *opts) {
+static int create_parent_directories(const char *path, mode_t default_mode, const options_t *opts)
+{
     char dir_path[MAX_PATH];
     char *slash;
     struct stat st;
@@ -462,8 +464,9 @@ static int create_parent_directories(const char *path, mode_t default_mode, cons
     return 0;
 }
 
-/* Create directory structure for destination, preserving source permissions */
-int create_directory_structure(const char *src_path, const char *dest_path, const options_t *opts) {
+/* Ensure dest directory structure exists, preserving src permissions */
+int create_directory_structure(const char *src_path, const char *dest_path, const options_t *opts)
+{
     struct stat src_st;
     
     if (stat(src_path, &src_st) != 0) {
@@ -492,8 +495,9 @@ int create_directory_structure(const char *src_path, const char *dest_path, cons
     return 0;
 }
 
-// Copies a file from src to dest, optionally creating a hard or soft link
-int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files, const options_t *opts, stats_t *stats) {
+/* Copy file, or create link to matching reference file if found */
+int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files, const options_t *opts, stats_t *stats)
+{
     struct stat src_st;
     file_info_t *matching_file = NULL;
 
@@ -501,11 +505,9 @@ int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
     if (opts->skip_symlinks) {
         struct stat lstat_st;
         if (lstat(src, &lstat_st) == 0 && S_ISLNK(lstat_st.st_mode)) {
-            if (opts->verbose >= 2) {
-                print_verbose("%s[SKIP]%s %s %s(symlink)%s",
-                            color_yellow(), color_reset(),
-                            src,
-                            color_dim(), color_reset());
+            if (opts->verbose >= 1) {
+                print_verbose("%s[SKIP]%s '%s'",
+                            color_yellow(), color_reset(), src);
             }
             stats->files_skipped++;
             return 0;
@@ -518,7 +520,7 @@ int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
         stat_result = lstat(src, &src_st);
 
         if (stat_result != 0) {
-            fprintf(stderr, "Error: Cannot lstat %s: %s\n", src, strerror(errno));
+            print_error("Cannot lstat %s: %s", src, strerror(errno));
             return -1;
         }
     } else {
@@ -528,11 +530,11 @@ int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
             /* Check if it's a broken symlink */
             struct stat lstat_st;
             if (lstat(src, &lstat_st) == 0 && S_ISLNK(lstat_st.st_mode)) {
-                fprintf(stderr, "Warning: Skipping broken symlink: %s\n", src);
+                print_warning("Skipping broken symlink: %s", src);
                 stats->files_skipped++;
                 return 0;
             }
-            fprintf(stderr, "Error: Cannot stat %s: %s\n", src, strerror(errno));
+            print_error("Cannot stat %s: %s", src, strerror(errno));
             return -1;
         }
     }
@@ -541,11 +543,9 @@ int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
     if (opts->no_dereference && S_ISLNK(src_st.st_mode)) {
         /* Check if we should overwrite */
         if (!should_overwrite(src, dest, opts)) {
-            if (opts->verbose) {
-                print_verbose("%s[SKIP]%s %s %s(exists)%s",
-                            color_yellow(), color_reset(),
-                            dest,
-                            color_dim(), color_reset());
+            if (opts->verbose >= 1) {
+                print_verbose("%s[SKIP]%s '%s'",
+                            color_yellow(), color_reset(), src);
             }
             stats->files_skipped++;
             return 0;
@@ -562,11 +562,9 @@ int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
 
     /* At this point, we either have a regular file or a dereferenced symlink */
     if (!S_ISREG(src_st.st_mode)) {
-        if (opts->verbose >= 2) {
-            print_verbose("%s[SKIP]%s %s %s(non-regular file)%s",
-                        color_yellow(), color_reset(),
-                        src,
-                        color_dim(), color_reset());
+        if (opts->verbose >= 1) {
+            print_verbose("%s[SKIP]%s '%s'",
+                        color_yellow(), color_reset(), src);
         }
         stats->files_skipped++;
         return 0;
@@ -574,11 +572,9 @@ int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
 
     /* Check if we should overwrite */
     if (!should_overwrite(src, dest, opts)) {
-        if (opts->verbose) {
-            print_verbose("%s[SKIP]%s %s %s(exists)%s",
-                        color_yellow(), color_reset(),
-                        dest,
-                        color_dim(), color_reset());
+        if (opts->verbose >= 1) {
+            print_verbose("%s[SKIP]%s '%s'",
+                        color_yellow(), color_reset(), src);
         }
         stats->files_skipped++;
         return 0;
@@ -586,17 +582,15 @@ int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
 
     /* Find matching reference file if available */
     matching_file = find_matching_file(ref_files, src, opts, stats);
-    if (matching_file) {
-        VERBOSE("Found matching reference file for %s: %s\n", src, matching_file->path);
+    if (opts->verbose >= 3 && matching_file) {
+        print_verbose("Found matching reference file for %s: %s", src, matching_file->path);
     }
 
     /* If --only-new is set and file exists in reference, skip it */
     if (opts->only_new && matching_file) {
-        if (opts->verbose) {
-            print_verbose("%s[SKIP]%s %s %s(in reference: %s)%s",
-                        color_yellow(), color_reset(),
-                        src,
-                        color_dim(), matching_file->path, color_reset());
+        if (opts->verbose >= 1) {
+            print_verbose("%s[SKIP]%s '%s'",
+                        color_yellow(), color_reset(), src);
         }
         stats->files_skipped++;
         return 0;
@@ -604,6 +598,8 @@ int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
 
     /* Ensure destination directory exists */
     if (create_directory_structure(src, dest, opts) != 0) {
+        print_error("Cannot create directory structure for %s: %s", dest, strerror(errno));
+        stats->files_failed++;
         return -1;
     }
 
@@ -613,7 +609,9 @@ int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
         
         /* Get the size of the reference file */
         if (stat(matching_file->path, &ref_st) != 0) {
-            VERBOSE("Warning: Could not stat reference file %s\n", matching_file->path);
+            if (opts->verbose >= 3) {
+                print_warning("Could not stat reference file %s", matching_file->path);
+            }
         } else {
             /* Remove destination file if it exists */
             file_unlink(dest, opts);
@@ -623,74 +621,87 @@ int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
                     stats->files_hard_linked++;
                     stats->bytes_hard_linked += src_st.st_size;
 
-                    if (opts->verbose) {
-                        const char *dry_run_prefix = opts->dry_run ? "[DRY RUN] " : "";
-                        print_verbose("%s%s[HARD LINK]%s %s %s<-%s %s %s(source: %s)%s",
-                                    dry_run_prefix,
-                                    color_blue(), color_reset(),
-                                    dest,
-                                    color_dim(), color_reset(),
-                                    matching_file->path,
-                                    color_dim(), src, color_reset());
+                    if (opts->verbose >= 1) {
+                        if (opts->dry_run) {
+                            print_verbose("%s[DRY RUN]%s %s[LINK]%s '%s' -> '%s' -> '%s'",
+                                        color_dim(), color_reset(),
+                                        color_blue(), color_reset(),
+                                        src, dest, matching_file->path);
+                        } else {
+                            print_verbose("%s[LINK]%s '%s' -> '%s' -> '%s'",
+                                        color_blue(), color_reset(),
+                                        src, dest, matching_file->path);
+                        }
                     }
                     return 0;
                 } else {
-                    fprintf(stderr, "Failed to create hard link for %s -> %s: %s\n", matching_file->path, dest, strerror(errno));
+                    print_error("Failed to create hard link for %s -> %s: %s", matching_file->path, dest, strerror(errno));
                 }
             } else if (opts->link_type == LINK_SOFT) {
                 if (file_symlink(matching_file->path, dest, opts) == 0) {
                     stats->files_soft_linked++;
                     stats->bytes_soft_linked += src_st.st_size;
 
-                    if (opts->verbose) {
-                        const char *dry_run_prefix = opts->dry_run ? "[DRY RUN] " : "";
-                        print_verbose("%s%s[SOFT LINK]%s %s %s<-%s %s %s(source: %s)%s",
-                                    dry_run_prefix,
-                                    color_cyan(), color_reset(),
-                                    dest,
-                                    color_dim(), color_reset(),
-                                    matching_file->path,
-                                    color_dim(), src, color_reset());
+                    if (opts->verbose >= 1) {
+                        if (opts->dry_run) {
+                            print_verbose("%s[DRY RUN]%s %s[LINK]%s '%s' -> '%s' -> '%s'",
+                                        color_dim(), color_reset(),
+                                        color_blue(), color_reset(),
+                                        src, dest, matching_file->path);
+                        } else {
+                            print_verbose("%s[LINK]%s '%s' -> '%s' -> '%s'",
+                                        color_blue(), color_reset(),
+                                        src, dest, matching_file->path);
+                        }
                     }
                     return 0;
                 } else {
-                    VERBOSE("Failed to create soft link for %s -> %s: %s\n", matching_file->path, dest, strerror(errno));
+                    if (opts->verbose >= 3) {
+                        print_verbose("Failed to create soft link for %s -> %s: %s", matching_file->path, dest, strerror(errno));
+                    }
                 }
             }
         }
     }
-    
+
     /* Fall back to regular copy */
-    int bytes_copied = file_copy(src, dest, opts, &src_st);
+    off_t bytes_copied = file_copy(src, dest, opts, &src_st);
     if (bytes_copied < 0) {
+        print_error("Failed to copy %s -> %s: %s", src, dest, strerror(errno));
+        stats->files_failed++;
         return -1;
     }
-    
+
     stats->files_copied++;
     stats->bytes_copied += bytes_copied;
-    
+
     /* Preserve attributes if requested */
     if (opts->preserve.mode || opts->preserve.ownership || opts->preserve.timestamps) {
         if (preserve_file_attributes(src, dest, &opts->preserve) != 0) {
-                fprintf(stderr, "Warning: Failed to preserve attributes for %s\n", dest);
+            print_warning("Failed to preserve attributes for %s", dest);
         }
     }
-    
-    if (opts->verbose) {
-        const char *dry_run_prefix = opts->dry_run ? "[DRY RUN] " : "";
-        print_verbose("%s%s[COPY]%s %s %s->%s %s",
-                    dry_run_prefix,
-                    color_green(), color_reset(),
-                    src,
-                    color_dim(), color_reset(),
-                    dest);
+
+    if (opts->verbose >= 1) {
+        if (opts->dry_run) {
+            print_verbose("%s[DRY RUN]%s %s[COPY]%s '%s' -> '%s'",
+                        color_dim(), color_reset(),
+                        color_green(), color_reset(),
+                        src, dest);
+        } else {
+            print_verbose("%s[COPY]%s '%s' -> '%s'",
+                        color_green(), color_reset(),
+                        src, dest);
+        }
     }
 
     return 0;
 }
 
-static int copy_directory_recursive(const char *src_path, const char *dest_path, 
-                                   ref_files_t *ref_files, const options_t *opts, stats_t *stats) {
+/* Recursively copy directory contents, linking duplicates when possible */
+static int copy_directory_recursive(const char *src_path, const char *dest_path,
+                                    ref_files_t *ref_files, const options_t *opts, stats_t *stats)
+{
     DIR *src_dir;
     struct dirent *entry;
     struct stat st;
@@ -699,21 +710,19 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
     
     src_dir = opendir(src_path);
     if (!src_dir) {
-        fprintf(stderr, "Error: Cannot open source directory %s: %s\n", 
-                src_path, strerror(errno));
+        print_error("Cannot open source directory %s: %s", src_path, strerror(errno));
         return -1;
     }
-    
+
     if (create_directory_structure(src_path, dest_path, opts) != 0) {
-        fprintf(stderr, "Error: Cannot create destination directory %s: %s\n", 
-                dest_path, strerror(errno));
+        print_error("Cannot create destination directory %s: %s", dest_path, strerror(errno));
         closedir(src_dir);
         return -1;
     }
-    
+
     if (opts->preserve.mode || opts->preserve.ownership || opts->preserve.timestamps) {
         if (preserve_file_attributes(src_path, dest_path, &opts->preserve) != 0 && opts->verbose) {
-            fprintf(stderr, "Warning: Failed to preserve attributes for directory %s\n", dest_path);
+            print_warning("Failed to preserve attributes for directory %s", dest_path);
         }
     }
     
@@ -729,11 +738,9 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
         if (opts->skip_symlinks) {
             struct stat lstat_st;
             if (lstat(src_full, &lstat_st) == 0 && S_ISLNK(lstat_st.st_mode)) {
-                if (opts->verbose >= 2) {
-                    print_verbose("%s[SKIP]%s %s %s(symlink)%s",
-                                color_yellow(), color_reset(),
-                                src_full,
-                                color_dim(), color_reset());
+                if (opts->verbose >= 1) {
+                    print_verbose("%s[SKIP]%s '%s'",
+                                color_yellow(), color_reset(), src_full);
                 }
                 continue;
             }
@@ -745,7 +752,7 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
             stat_result = lstat(src_full, &st);
 
             if (stat_result != 0) {
-                fprintf(stderr, "Warning: Cannot lstat %s: %s\n", src_full, strerror(errno));
+                print_warning("Cannot lstat %s: %s", src_full, strerror(errno));
                 continue;
             }
         } else {
@@ -755,10 +762,10 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
                 /* Check if it's a broken symlink */
                 struct stat lstat_st;
                 if (lstat(src_full, &lstat_st) == 0 && S_ISLNK(lstat_st.st_mode)) {
-                    fprintf(stderr, "Warning: Skipping broken symlink: %s\n", src_full);
+                    print_warning("Skipping broken symlink: %s", src_full);
                     continue;
                 }
-                fprintf(stderr, "Warning: Cannot stat %s: %s\n", src_full, strerror(errno));
+                print_warning("Cannot stat %s: %s", src_full, strerror(errno));
                 continue;
             }
         }
@@ -769,15 +776,10 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
                 continue;
             }
 
-            if (opts->show_stats) {
+            if (opts->show_stats && opts->verbose == 0) {
                 char stats_buffer[256];
                 format_stats_line(stats, opts->human_readable, stats_buffer, sizeof(stats_buffer));
-
-                if (opts->verbose == 0) {
-                    print_status_update("%s", stats_buffer);
-                } else {
-                    print_stats_at_bottom("%s", stats_buffer);
-                }
+                print_status_update("%s", stats_buffer);
             }
             continue;
         }
@@ -794,24 +796,21 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
                 continue;
             }
             
-            if (opts->show_stats) {
+            if (opts->show_stats && opts->verbose == 0) {
                 char stats_buffer[256];
                 format_stats_line(stats, opts->human_readable, stats_buffer, sizeof(stats_buffer));
-                
-                if (opts->verbose == 0) {
-                    print_status_update("%s", stats_buffer);
-                } else {
-                    print_stats_at_bottom("%s", stats_buffer);
-                }
+                print_status_update("%s", stats_buffer);
             }
         }
     }
-    
+
     closedir(src_dir);
     return 0;
 }
 
-int copy_directory(const options_t *opts, stats_t *stats) {
+/* Main entry point: copy all sources to destination with deduplication */
+int copy_directory(const options_t *opts, stats_t *stats)
+{
     struct stat dest_st;
     ref_files_t *ref_files = NULL;
     int overall_result = 0;
@@ -822,7 +821,7 @@ int copy_directory(const options_t *opts, stats_t *stats) {
         if (S_ISDIR(dest_st.st_mode)) {
             dest_is_dir = 1;
         } else if (S_ISREG(dest_st.st_mode) && opts->source_count > 1) {
-            fprintf(stderr, "Error: Cannot copy multiple sources to a regular file\n");
+            print_error("Cannot copy multiple sources to a regular file");
             return -1;
         }
     } else {
@@ -834,14 +833,14 @@ int copy_directory(const options_t *opts, stats_t *stats) {
     
     /* Scan reference directories once */
     if (opts->ref_dir_count > 0) {
-        VERBOSE("Scanning %d reference directories...\n", opts->ref_dir_count);
+        if (opts->verbose >= 3) {
+            print_verbose("Scanning %d reference directories...", opts->ref_dir_count);
+        }
         ref_files = scan_reference_directory(opts, stats);
         if (!ref_files) {
-            fprintf(stderr, "Warning: No files found in reference directories\n");
-        } else {
-            // Get the number of reference files from the sorted structure
-            int ref_file_count = ref_files->count;
-            VERBOSE("Found %d reference files across all directories\n", ref_file_count);
+            print_warning("No files found in reference directories");
+        } else if (opts->verbose >= 3) {
+            print_verbose("Found %d reference files across all directories", ref_files->count);
         }
     }
     
@@ -852,8 +851,7 @@ int copy_directory(const options_t *opts, stats_t *stats) {
         const char *src_path = opts->sources[i];
         
         if (stat(src_path, &src_st) != 0) {
-            fprintf(stderr, "Error: Cannot access source %s: %s\n", 
-                    src_path, strerror(errno));
+            print_error("Cannot access source %s: %s", src_path, strerror(errno));
             overall_result = -1;
             continue;
         }
@@ -880,22 +878,26 @@ int copy_directory(const options_t *opts, stats_t *stats) {
                 continue;
             }
             
-            if (opts->show_stats) {
+            if (opts->show_stats && opts->verbose == 0) {
                 char stats_buffer[256];
                 format_stats_line(stats, opts->human_readable, stats_buffer, sizeof(stats_buffer));
-                
-                if (opts->verbose == 0) {
-                    print_status_update("%s", stats_buffer);
-                } else {
-                    print_stats_at_bottom("%s", stats_buffer);
-                }
+                print_status_update("%s", stats_buffer);
             }
         }
     }
-    
+
     if (ref_files) {
+        /* Calculate index memory usage before freeing */
+        stats->index_memory = sizeof(ref_files_t)
+                            + (size_t)ref_files->count * sizeof(file_info_t *);
+        for (int i = 0; i < ref_files->count; i++) {
+            file_info_t *f = ref_files->files[i];
+            stats->index_memory += sizeof(file_info_t);
+            stats->index_memory += strlen(f->path) + 1;
+            stats->index_memory += (size_t)f->block_hashes.allocated_blocks * BLOCK_HASH_SIZE;
+        }
         free_sorted_file_info(ref_files);
     }
-    
+
     return overall_result;
 }

@@ -26,15 +26,17 @@
 #include "cpdd.h"
 #include "md5.h"
 
-/* Initialize a new block cache to empty state */
-void init_block_hashes(block_hashes_t *cache) {
+/* Initialize block hash cache to empty state */
+void init_block_hashes(block_hashes_t *cache)
+{
     cache->block_md5s = NULL;
     cache->cached_blocks = 0;
     cache->allocated_blocks = 0;
 }
 
-/* Grow block cache by BLOCK_CACHE_GROW_SIZE blocks */
-int grow_block_hashes(block_hashes_t *hashes) {
+/* Expand block cache capacity. Returns 1 on success, 0 if at max, -1 on error */
+int grow_block_hashes(block_hashes_t *hashes)
+{
     if (hashes->allocated_blocks >= MAX_CACHED_BLOCKS) {
         return 0; /* Already at maximum size */
     }
@@ -55,8 +57,9 @@ int grow_block_hashes(block_hashes_t *hashes) {
     return 1; /* Success */
 }
 
-/* Free block cache memory */
-void free_block_hashes(block_hashes_t *hashes) {
+/* Free block hash cache memory */
+void free_block_hashes(block_hashes_t *hashes)
+{
     if (hashes->block_md5s) {
         free(hashes->block_md5s);
         hashes->block_md5s = NULL;
@@ -65,9 +68,10 @@ void free_block_hashes(block_hashes_t *hashes) {
     hashes->allocated_blocks = 0;
 }
 
-/* Update block cache with new block hash if needed */
-static int update_hash_chain(file_info_t *file, int block_num, 
-                             const unsigned char *buffer, size_t bytes) {
+/* Cache hash for block if not already cached */
+static int update_hash_chain(file_info_t *file, int block_num,
+                             const unsigned char *buffer, size_t bytes)
+{
     /* Only cache if we need to (beyond current cache) */
     if (bytes == 0 || block_num < file->block_hashes.cached_blocks) {
         return 1; /* Nothing to do */
@@ -95,16 +99,16 @@ static int update_hash_chain(file_info_t *file, int block_num,
 }
 
 
-/* Block-based file comparison with dynamic cache growth.
- * 1. First check cached blocks from reference file for fast rejection
- * 2. If cached blocks match, do full bytewise comparison from beginning
- * 3. Build block cache for both files during comparison
- * 4. Stop caching at first mismatch or when cache is full
+/*
+ * Compare two files for identical content using cached block hashes.
+ * Phase 1: Fast rejection via cached block hashes (memory only)
+ * Phase 2: Full bytewise comparison, building cache as we go
  */
-match_result_t files_match(file_info_t *ref_file, file_info_t *src_file) {
+match_result_t files_match(file_info_t *ref_file, file_info_t *src_file)
+{
     /* Files should always have the same size when this function is called */
     if (ref_file->size != src_file->size) {
-        fprintf(stderr, "Internal error: files_match called with different sized files\n");
+        print_error("Internal error: files_match called with different sized files");
         return MATCH_ERROR;
     }
     
@@ -160,10 +164,9 @@ match_result_t files_match(file_info_t *ref_file, file_info_t *src_file) {
     return files_match ? MATCH_SUCCESS : MATCH_FAIL_BYTEWISE;
 }
 
-/*
- * Helper function to recursively collect file paths and sizes portably across operating systems.
- */
-static void collect_file_info(const char *ref_dir, const options_t *opts, int *count, file_info_t **head) {
+/* Recursively collect file metadata from directory into linked list */
+static void collect_file_info(const char *ref_dir, const options_t *opts, int *count, file_info_t **head)
+{
     DIR *dir;
     struct dirent *entry;
     struct stat st;
@@ -192,10 +195,8 @@ static void collect_file_info(const char *ref_dir, const options_t *opts, int *c
             if (!new_file) {
                 continue;
             }
-            // Display the file that is being added
-            if (opts->verbose == 3) {
-                // Cast off_t to long long to avoid cross-platform format specifier issues
-                printf("Adding reference file: %s (size: %lld bytes)\n", full_path, (long long)st.st_size);
+            if (opts->verbose >= 3) {
+                print_verbose("Adding reference file: %s (size: %lld bytes)", full_path, (long long)st.st_size);
             }
 
             new_file->path = strdup(full_path);
@@ -215,19 +216,22 @@ static void collect_file_info(const char *ref_dir, const options_t *opts, int *c
     }
     
     closedir(dir);
-    if (opts->verbose == 1) {
-        print_status_update("\rScanned %d reference files in", *count, ref_dir);
-        fflush(stdout);
+    if (opts->verbose == 0) {
+        print_status_update("Scanning reference files: %d found", *count);
     }
 }
 
-static int compare_file_info_size(const void *a, const void *b) {
+/* qsort comparator: order files by size ascending */
+static int compare_file_info_size(const void *a, const void *b)
+{
     file_info_t *file_a = *(file_info_t **)a;
     file_info_t *file_b = *(file_info_t **)b;
     return (file_a->size > file_b->size) - (file_a->size < file_b->size);
 }
 
-static int find_first_size_match(ref_files_t *ref_files, off_t target_size) {
+/* Binary search for first file with given size. Returns -1 if not found */
+static int find_first_size_match(ref_files_t *ref_files, off_t target_size)
+{
     int left = 0, right = ref_files->count - 1;
     int first_match = -1;
     
@@ -246,14 +250,9 @@ static int find_first_size_match(ref_files_t *ref_files, off_t target_size) {
 }
 
 
-/*
- * Recursively scan reference directory and build sorted array of file metadata.
- * Uses lazy MD5 calculation optimization: first pass collects file sizes and marks
- * files that need MD5 (those with duplicate sizes), but doesn't calculate MD5 yet.
- * MD5 is calculated lazily during the first comparison attempt.
- * Returns sorted_file_info_t structure with array of file_info_t pointers, or NULL on error.
- */
-ref_files_t *scan_reference_directory(const options_t *opts, stats_t *stats) {
+/* Scan reference directories and build sorted array of file metadata */
+ref_files_t *scan_reference_directory(const options_t *opts, stats_t *stats)
+{
     file_info_t *head = NULL;
     file_info_t *current;
     ref_files_t *sorted_files;
@@ -313,8 +312,9 @@ ref_files_t *scan_reference_directory(const options_t *opts, stats_t *stats) {
     return sorted_files;
 }
 
-/* Updates the global hash cache stattstics */
-static void update_hash_stats(stats_t *stats, file_info_t *file) {
+/* Update cache depth statistics from file's block cache */
+static void update_hash_stats(stats_t *stats, file_info_t *file)
+{
     if (file->block_hashes.cached_blocks > 0) {
         stats->total_cache_depth += file->block_hashes.cached_blocks;
         if (file->block_hashes.cached_blocks < stats->min_cache_depth || stats->min_cache_depth == 0) {
@@ -326,9 +326,9 @@ static void update_hash_stats(stats_t *stats, file_info_t *file) {
     }
 }
 
-/* Finds a file in the ser of reference files that matches the source file.
-   This is the main matching algorithm. */
-file_info_t *find_matching_file(ref_files_t *ref_files, const char *src_file, const options_t *opts, stats_t *stats) {
+/* Find reference file matching src by size and content. Returns NULL if none */
+file_info_t *find_matching_file(ref_files_t *ref_files, const char *src_file, const options_t *opts, stats_t *stats)
+{
     struct stat st;
 
     if (ref_files == NULL || ref_files->count == 0) {
@@ -336,7 +336,7 @@ file_info_t *find_matching_file(ref_files_t *ref_files, const char *src_file, co
     }
 
     if (stat(src_file, &st) != 0) {
-        fprintf(stderr, "Error: Cannot stat source file %s\n", src_file);
+        print_error("Cannot stat source file %s", src_file);
         return NULL;
     }
 
@@ -362,6 +362,8 @@ file_info_t *find_matching_file(ref_files_t *ref_files, const char *src_file, co
         return NULL;  /* No files with matching size found */
     }
 
+    stats->files_with_size_matches++;
+
     /* Check all files with the same size starting from first_match */
     for (int i = first_match; i < ref_files->count && ref_files->files[i]->size == st.st_size; i++) {
         file_info_t *current = ref_files->files[i];
@@ -375,8 +377,8 @@ file_info_t *find_matching_file(ref_files_t *ref_files, const char *src_file, co
         /* Decide whether to verify contents */
         if (opts->no_verify) {
             /* Accept match based on size and name only, no content verification */
-            if (opts->verbose) {
-                printf("Match found (size+name, no verification): %s matches %s\n", src_file, current->path);
+            if (opts->verbose >= 3) {
+                print_verbose("Match found (size+name, no verification): %s matches %s", src_file, current->path);
             }
             match = current;
             break;
@@ -388,8 +390,8 @@ file_info_t *find_matching_file(ref_files_t *ref_files, const char *src_file, co
         switch (files_match(current, &src_info)) {
             case MATCH_SUCCESS:
                 /* Match found */
-                if (opts->verbose) {
-                    printf("Match found: %s matches %s\n", src_file, current->path);
+                if (opts->verbose >= 3) {
+                    print_verbose("Match found: %s matches %s", src_file, current->path);
                 }
                 match = current;
                 break;
@@ -401,8 +403,7 @@ file_info_t *find_matching_file(ref_files_t *ref_files, const char *src_file, co
                 /* Failed during bytewise comparison - Files don't match */
                 break;
             case MATCH_ERROR:
-                fprintf(stderr, "Error: File comparison failed between %s and %s\n",
-                        src_file, current->path);
+                print_error("File comparison failed between %s and %s", src_file, current->path);
                 break;
         }
 
@@ -412,7 +413,9 @@ file_info_t *find_matching_file(ref_files_t *ref_files, const char *src_file, co
     return match;
 }
 
-void free_file_list(file_info_t *list) {
+/* Free linked list of file_info_t nodes */
+void free_file_list(file_info_t *list)
+{
     file_info_t *current = list;
     file_info_t *next;
     
@@ -425,7 +428,9 @@ void free_file_list(file_info_t *list) {
     }
 }
 
-void free_sorted_file_info(ref_files_t *sorted_files) {
+/* Free sorted reference file array and all contained file_info_t */
+void free_sorted_file_info(ref_files_t *sorted_files)
+{
     if (!sorted_files) return;
     
     /* Free all file_info_t objects */

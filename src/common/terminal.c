@@ -27,17 +27,23 @@
 #include <sys/ioctl.h>
 #include <time.h>
 
+/* Cached terminal capability flags */
 static int terminal_capability_checked = 0;
 static int supports_clear_eol = 0;
 static int supports_color = 0;
 static int stats_line_active = 0;
 
-static int terminal_supports_clear_eol_for_fd(int fd) {
+/* Check if fd supports ANSI clear-to-end-of-line */
+static int terminal_supports_clear_eol_for_fd(int fd)
+{
     if (!isatty(fd)) {
         return 0;
     }
 
     const char *term = getenv("TERM");
+    if (!term) {
+        return 0;
+    }
 
     if (strstr(term, "xterm")  ||
         strstr(term, "screen") ||
@@ -51,12 +57,14 @@ static int terminal_supports_clear_eol_for_fd(int fd) {
         strstr(term, "ansi"))
     {
         return 1;
-    } else {
-        return 0;
     }
+
+    return 0;
 }
 
-static int terminal_supports_color_for_fd(int fd) {
+/* Check if fd supports ANSI color codes. Respects NO_COLOR env var */
+static int terminal_supports_color_for_fd(int fd)
+{
     /* Respect NO_COLOR environment variable */
     if (getenv("NO_COLOR") != NULL) {
         return 0;
@@ -86,7 +94,9 @@ static int terminal_supports_color_for_fd(int fd) {
     return 0;
 }
 
-int terminal_supports_clear_eol(void) {
+/* Check and cache terminal capabilities for stderr */
+int terminal_supports_clear_eol(void)
+{
     if (terminal_capability_checked) {
         return supports_clear_eol;
     }
@@ -98,14 +108,18 @@ int terminal_supports_clear_eol(void) {
     return supports_clear_eol;
 }
 
-int terminal_supports_color(void) {
+/* Return cached color support status */
+int terminal_supports_color(void)
+{
     if (!terminal_capability_checked) {
         terminal_supports_clear_eol(); /* Initialize */
     }
     return supports_color;
 }
 
-void print_status_update(const char *format, ...) {
+/* Print in-place status line to stderr (uses reverse video on capable terms) */
+void print_status_update(const char *format, ...)
+{
     va_list args;
     va_start(args, format);
 
@@ -124,7 +138,9 @@ void print_status_update(const char *format, ...) {
     va_end(args);
 }
 
-void fprint_status_update(FILE *stream, const char *format, ...) {
+/* Print in-place status line to arbitrary stream */
+void fprint_status_update(FILE *stream, const char *format, ...)
+{
     va_list args;
     va_start(args, format);
     
@@ -142,11 +158,15 @@ void fprint_status_update(FILE *stream, const char *format, ...) {
     va_end(args);
 }
 
-void clear_status_line(void) {
+/* Clear status line on stderr */
+void clear_status_line(void)
+{
     fclear_status_line(stderr);
 }
 
-void fclear_status_line(FILE *stream) {
+/* Clear status line on arbitrary stream */
+void fclear_status_line(FILE *stream)
+{
     int fd = fileno(stream);
     if (terminal_supports_clear_eol_for_fd(fd)) {
         fprintf(stream, "\r\033[0m\033[K");  /* Reset attributes + clear line */
@@ -154,7 +174,9 @@ void fclear_status_line(FILE *stream) {
     }
 }
 
-void print_stats_at_bottom(const char *format, ...) {
+/* Print stats line with [STATS] prefix (not currently used) */
+void print_stats_at_bottom(const char *format, ...)
+{
     va_list args;
     va_start(args, format);
 
@@ -179,8 +201,9 @@ void print_stats_at_bottom(const char *format, ...) {
     va_end(args);
 }
 
-/* Print verbose message, clearing stats line if needed */
-void print_verbose(const char *format, ...) {
+/* Print verbose message to stderr, clearing any active stats line */
+void print_verbose(const char *format, ...)
+{
     va_list args;
 
     /* Clear stats line if active */
@@ -197,8 +220,9 @@ void print_verbose(const char *format, ...) {
     fflush(stderr);
 }
 
-/* Clear stats line at end of operation */
-void finalize_stats_line(void) {
+/* Move past stats line at end of operation */
+void finalize_stats_line(void)
+{
     if (stats_line_active && terminal_supports_clear_eol()) {
         fprintf(stderr, "\n");  /* Move to new line, preserving stats */
         fflush(stderr);
@@ -206,8 +230,9 @@ void finalize_stats_line(void) {
     }
 }
 
-/* Truncate a path to fit within max_width, showing first and last parts */
-void truncate_path(const char *path, char *buffer, size_t buffer_size, int max_width) {
+/* Truncate path to max_width, showing "start...end" */
+void truncate_path(const char *path, char *buffer, size_t buffer_size, int max_width)
+{
     int path_len = strlen(path);
 
     if (path_len <= max_width) {
@@ -233,27 +258,52 @@ void truncate_path(const char *path, char *buffer, size_t buffer_size, int max_w
              path + path_len - suffix_len);
 }
 
-/* ANSI color codes */
-const char *color_reset(void) {
-    return terminal_supports_color() ? "\033[0m" : "";
+/* ANSI color/style codes - return empty string if not supported */
+const char *color_reset(void)  { return terminal_supports_color() ? "\033[0m"  : ""; }
+const char *color_red(void)    { return terminal_supports_color() ? "\033[31m" : ""; }
+const char *color_green(void)  { return terminal_supports_color() ? "\033[32m" : ""; }
+const char *color_yellow(void) { return terminal_supports_color() ? "\033[33m" : ""; }
+const char *color_blue(void)   { return terminal_supports_color() ? "\033[34m" : ""; }
+const char *color_cyan(void)   { return terminal_supports_color() ? "\033[36m" : ""; }
+const char *color_bold(void)   { return terminal_supports_color() ? "\033[1m"  : ""; }
+const char *color_dim(void)    { return terminal_supports_color() ? "\033[2m"  : ""; }
+
+/* Print colored error message to stderr */
+void print_error(const char *format, ...)
+{
+    va_list args;
+    va_start(args, format);
+
+    /* Clear stats line if active */
+    if (stats_line_active && terminal_supports_clear_eol()) {
+        fprintf(stderr, "\r\033[K");
+        stats_line_active = 0;
+    }
+
+    fprintf(stderr, "%s%sError:%s ", color_bold(), color_red(), color_reset());
+    vfprintf(stderr, format, args);
+    fprintf(stderr, "\n");
+    fflush(stderr);
+
+    va_end(args);
 }
 
-const char *color_green(void) {
-    return terminal_supports_color() ? "\033[32m" : "";
-}
+/* Print colored warning message to stderr */
+void print_warning(const char *format, ...)
+{
+    va_list args;
+    va_start(args, format);
 
-const char *color_blue(void) {
-    return terminal_supports_color() ? "\033[34m" : "";
-}
+    /* Clear stats line if active */
+    if (stats_line_active && terminal_supports_clear_eol()) {
+        fprintf(stderr, "\r\033[K");
+        stats_line_active = 0;
+    }
 
-const char *color_yellow(void) {
-    return terminal_supports_color() ? "\033[33m" : "";
-}
+    fprintf(stderr, "%sWarning:%s ", color_yellow(), color_reset());
+    vfprintf(stderr, format, args);
+    fprintf(stderr, "\n");
+    fflush(stderr);
 
-const char *color_cyan(void) {
-    return terminal_supports_color() ? "\033[36m" : "";
-}
-
-const char *color_dim(void) {
-    return terminal_supports_color() ? "\033[2m" : "";
+    va_end(args);
 }

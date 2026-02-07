@@ -186,6 +186,35 @@ char *generate_similar_content(const char *base_content, size_t size, double sim
     return content;
 }
 
+static char *read_file_content(const char *path, size_t *size_out)
+{
+    FILE *f = fopen(path, "r");
+    if (!f)
+        return NULL;
+
+    fseek(f, 0, SEEK_END);
+    long len = ftell(f);
+    if (len < 0) {
+        fclose(f);
+        return NULL;
+    }
+    fseek(f, 0, SEEK_SET);
+
+    char *buf = malloc((size_t)len + 1);
+    if (!buf) {
+        fclose(f);
+        return NULL;
+    }
+
+    size_t nread = fread(buf, 1, (size_t)len, f);
+    fclose(f);
+    buf[nread] = '\0';
+
+    if (size_out)
+        *size_out = nread;
+    return buf;
+}
+
 char *generate_random_filename(const char *prefix)
 {
     char *filename = malloc(256);
@@ -227,43 +256,80 @@ int create_directory_tree(const char *root, int num_dirs)
     return 0;
 }
 
-static char *choose_random_directory(const char *root)
+/* Directory cache for fast random selection */
+typedef struct {
+    char **paths;
+    int count;
+    int capacity;
+} dir_cache_t;
+
+static dir_cache_t dir_cache = {NULL, 0, 0};
+
+/* Recursively collect all directories into cache */
+static void collect_directories(const char *path)
 {
-    char find_cmd[MAX_PATH * 2];
-    char *result = malloc(MAX_PATH);
-    FILE *fp;
+    DIR *dir = opendir(path);
+    if (!dir)
+        return;
 
-    if (!result)
+    /* Add this directory to cache */
+    if (dir_cache.count >= dir_cache.capacity) {
+        int new_cap = dir_cache.capacity == 0 ? 64 : dir_cache.capacity * 2;
+        char **new_paths = realloc(dir_cache.paths, new_cap * sizeof(char *));
+        if (!new_paths) {
+            closedir(dir);
+            return;
+        }
+        dir_cache.paths = new_paths;
+        dir_cache.capacity = new_cap;
+    }
+    dir_cache.paths[dir_cache.count++] = strdup(path);
+
+    /* Recurse into subdirectories */
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+        if (entry->d_name[0] == '.')
+            continue;
+
+        char subpath[MAX_PATH];
+        snprintf(subpath, sizeof(subpath), "%s/%s", path, entry->d_name);
+
+        struct stat st;
+        if (stat(subpath, &st) == 0 && S_ISDIR(st.st_mode)) {
+            collect_directories(subpath);
+        }
+    }
+    closedir(dir);
+}
+
+/* Initialize directory cache for a root directory */
+static void init_dir_cache(const char *root)
+{
+    /* Free old cache if any */
+    for (int i = 0; i < dir_cache.count; i++)
+        free(dir_cache.paths[i]);
+    dir_cache.count = 0;
+
+    collect_directories(root);
+}
+
+/* Free directory cache */
+static void free_dir_cache(void)
+{
+    for (int i = 0; i < dir_cache.count; i++)
+        free(dir_cache.paths[i]);
+    free(dir_cache.paths);
+    dir_cache.paths = NULL;
+    dir_cache.count = 0;
+    dir_cache.capacity = 0;
+}
+
+/* Pick a random directory from cache - returns pointer, do not free */
+static const char *choose_random_directory(void)
+{
+    if (dir_cache.count == 0)
         return NULL;
-
-    snprintf(find_cmd, sizeof(find_cmd), "find '%s' -type d 2>/dev/null | head -20", root);
-    fp = popen(find_cmd, "r");
-    if (!fp)
-    {
-        free(result);
-        return strdup(root);
-    }
-
-    char directories[20][MAX_PATH];
-    int dir_count = 0;
-
-    while (fgets(directories[dir_count], MAX_PATH, fp) && dir_count < 20)
-    {
-        char *newline = strchr(directories[dir_count], '\n');
-        if (newline)
-            *newline = '\0';
-        dir_count++;
-    }
-    pclose(fp);
-
-    if (dir_count == 0)
-    {
-        free(result);
-        return strdup(root);
-    }
-
-    strcpy(result, directories[rand() % dir_count]);
-    return result;
+    return dir_cache.paths[rand() % dir_cache.count];
 }
 
 int create_reference_directory(const char *root, int num_files, int num_dirs,
@@ -280,9 +346,12 @@ int create_reference_directory(const char *root, int num_files, int num_dirs,
 
     if (create_directory_tree(root, num_dirs) != 0)
     {
-        fprintf(stderr, "Error: Failed to create directory tree in %s\n", root);
+        fprintf(stderr, "Error: Failed to create directory tree in %s: %s\n", root, strerror(errno));
         return -1;
     }
+
+    /* Build directory cache once for fast random selection */
+    init_dir_cache(root);
 
     for (int i = 0; i < num_files; i++)
     {
@@ -290,7 +359,8 @@ int create_reference_directory(const char *root, int num_files, int num_dirs,
         if (!entry)
             continue;
 
-        char *dir = choose_random_directory(root);
+        const char *dir = choose_random_directory();
+        if (!dir) dir = root;
         char *filename = generate_random_filename("ref");
         char full_path[MAX_PATH];
 
@@ -311,9 +381,22 @@ int create_reference_directory(const char *root, int num_files, int num_dirs,
         }
         char *content = generate_random_content(content_size);
 
+        FILE *f = fopen(full_path, "w");
+        if (!f)
+        {
+            fprintf(stderr, "Error: Could not create file %s: %s\n", full_path, strerror(errno));
+            free(entry);
+            free(content);
+            free(filename);
+            free_dir_cache();
+            *file_list = head;
+            return -1;
+        }
+
+        fwrite(content, 1, content_size, f);
+        fclose(f);
+
         entry->path = strdup(full_path);
-        entry->content = content;
-        entry->content_size = content_size;
         entry->next = NULL;
 
         if (!head)
@@ -327,65 +410,31 @@ int create_reference_directory(const char *root, int num_files, int num_dirs,
             current = entry;
         }
 
-        FILE *f = fopen(full_path, "w");
-        if (f)
+        if (opts->verbose)
         {
-            fwrite(content, 1, content_size, f);
-            fclose(f);
-
-            if (opts->verbose)
-            {
-                printf("  Created reference file: %s (%zu bytes)\n", full_path, content_size);
-            }
-            else if ((i + 1) % 10 == 0)
-            {
-                if (opts->verbose == 0) {
-                    print_status_update("Created %d/%d reference files", i + 1, num_files);
-                } else {
-                    printf("  Created %d/%d reference files\n", i + 1, num_files);
-                }
-            }
+            printf("  Created reference file: %s (%zu bytes)\n", full_path, content_size);
         }
-        else
+        else if ((i + 1) % 100 == 0)
         {
-            fprintf(stderr, "Warning: Could not create file %s\n", full_path);
+            print_status_update("Created %d/%d reference files", i + 1, num_files);
         }
 
-        free(dir);
+        free(content);
         free(filename);
     }
 
     *file_list = head;
-    
-    /* Clear status line if we were showing progress updates */
-    if (opts->verbose == 0) {
+    free_dir_cache();
+
+    if (opts->verbose == 0)
         clear_status_line();
-    }
-    
+
     return 0;
-}
-
-// Helper function to select a random reference file
-static file_entry_t *select_random_reference(file_entry_t *ref_files, int ref_count)
-{
-    if (!ref_files || ref_count <= 0)
-        return NULL;
-
-    int ref_index = rand() % ref_count;
-    file_entry_t *current = ref_files;
-
-    for (int i = 0; i < ref_index && current; i++)
-    {
-        current = current->next;
-    }
-
-    return current;
 }
 
 int create_source_directory(const char *root, int num_files, int num_dirs,
                             file_entry_t *ref_files, const options_t *opts)
 {
-
     if (opts->verbose)
     {
         printf("Creating source directory: %s\n", root);
@@ -399,9 +448,13 @@ int create_source_directory(const char *root, int num_files, int num_dirs,
         return -1;
     }
 
+    /* Build directory cache once for fast random selection */
+    init_dir_cache(root);
+
     int num_duplicates = (int)(num_files * opts->duplicate_percent);
     int duplicates_created = 0;
 
+    /* Convert reference file list to array for O(1) random access */
     file_entry_t *ref_current = ref_files;
     int ref_count = 0;
     while (ref_current)
@@ -410,9 +463,22 @@ int create_source_directory(const char *root, int num_files, int num_dirs,
         ref_current = ref_current->next;
     }
 
+    file_entry_t **ref_array = NULL;
+    if (ref_count > 0) {
+        ref_array = malloc(ref_count * sizeof(file_entry_t *));
+        if (ref_array) {
+            ref_current = ref_files;
+            for (int i = 0; i < ref_count; i++) {
+                ref_array[i] = ref_current;
+                ref_current = ref_current->next;
+            }
+        }
+    }
+
     for (int i = 0; i < num_files; i++)
     {
-        char *dir = choose_random_directory(root);
+        const char *dir = choose_random_directory();
+        if (!dir) dir = root;
         char *filename = generate_random_filename("src");
         char full_path[MAX_PATH];
 
@@ -421,23 +487,34 @@ int create_source_directory(const char *root, int num_files, int num_dirs,
         FILE *f = fopen(full_path, "w");
         if (!f)
         {
-            fprintf(stderr, "Warning: Could not create file %s\n", full_path);
-            free(dir);
+            fprintf(stderr, "Error: Could not create file %s: %s\n", full_path, strerror(errno));
             free(filename);
-            continue;
+            free(ref_array);
+            free_dir_cache();
+            return -1;
         }
 
-        if (duplicates_created < num_duplicates && ref_count > 0)
+        if (duplicates_created < num_duplicates && ref_array && ref_count > 0)
         {
-            // Use the helper function to select a random reference file
-            file_entry_t *selected_ref = select_random_reference(ref_files, ref_count);
+            /* O(1) random selection from array */
+            file_entry_t *selected_ref = ref_array[rand() % ref_count];
 
             if (selected_ref)
             {
+                /* Read reference content from disk on demand */
+                size_t ref_size = 0;
+                char *ref_content = read_file_content(selected_ref->path, &ref_size);
+                if (!ref_content) {
+                    fprintf(stderr, "Warning: Could not re-read reference file %s\n", selected_ref->path);
+                    free(filename);
+                    fclose(f);
+                    continue;
+                }
+
                 // Determine similarity pattern based on distribution percentages
                 similarity_pattern_t pattern;
                 double pattern_rand = (double)rand() / RAND_MAX;
-                
+
                 if (pattern_rand < opts->exact_percent) {
                     pattern = SIMILARITY_EXACT;
                 } else if (pattern_rand < opts->exact_percent + opts->prefix_percent) {
@@ -447,11 +524,11 @@ int create_source_directory(const char *root, int num_files, int num_dirs,
                 } else {
                     pattern = SIMILARITY_RANDOM;
                 }
-                
+
                 // Determine final size with some variation to create more realistic test scenarios
-                size_t final_size = selected_ref->content_size;
+                size_t final_size = ref_size;
                 int size_variation = rand() % 3; // 0=same size, 1=truncate, 2=pad
-                
+
                 if (size_variation == 1) {
                     // Truncate by 10-30%
                     double truncate_factor = 0.1 + (rand() % 21) / 100.0; // 0.1 to 0.3
@@ -462,29 +539,29 @@ int create_source_directory(const char *root, int num_files, int num_dirs,
                     double pad_factor = 0.1 + (rand() % 21) / 100.0; // 0.1 to 0.3
                     final_size = (size_t)(final_size * (1.0 + pad_factor));
                 }
-                
+
                 // Generate similar content based on pattern
-                char *similar_content = generate_similar_content(selected_ref->content, 
-                                                               selected_ref->content_size, 
+                char *similar_content = generate_similar_content(ref_content,
+                                                               ref_size,
                                                                opts->similarity,
                                                                pattern);
-                
+
                 if (similar_content) {
                     // Adjust content size if needed
-                    if (final_size != selected_ref->content_size) {
+                    if (final_size != ref_size) {
                         char *adjusted_content = malloc(final_size + 1);
                         if (adjusted_content) {
-                            if (final_size < selected_ref->content_size) {
+                            if (final_size < ref_size) {
                                 // Truncate
                                 memcpy(adjusted_content, similar_content, final_size);
                             } else {
                                 // Pad with random data
-                                memcpy(adjusted_content, similar_content, selected_ref->content_size);
+                                memcpy(adjusted_content, similar_content, ref_size);
                                 // Fill the rest with random content
-                                char *padding = generate_random_content(final_size - selected_ref->content_size);
+                                char *padding = generate_random_content(final_size - ref_size);
                                 if (padding) {
-                                    memcpy(adjusted_content + selected_ref->content_size, padding, 
-                                           final_size - selected_ref->content_size);
+                                    memcpy(adjusted_content + ref_size, padding,
+                                           final_size - ref_size);
                                     free(padding);
                                 }
                             }
@@ -497,7 +574,7 @@ int create_source_directory(const char *root, int num_files, int num_dirs,
                     if (opts->verbose)
                     {
                         const char *pattern_names[] = {"exact", "prefix", "suffix", "random"};
-                        printf("  Creating similar file (%s pattern, %.1f%% similarity): %s -> %s\n", 
+                        printf("  Creating similar file (%s pattern, %.1f%% similarity): %s -> %s\n",
                                pattern_names[pattern], opts->similarity * 100.0, selected_ref->path, full_path);
                     }
 
@@ -514,6 +591,8 @@ int create_source_directory(const char *root, int num_files, int num_dirs,
                 } else {
                     fprintf(stderr, "Error: Failed to generate similar content\n");
                 }
+
+                free(ref_content);
             }
             else
             {
@@ -544,25 +623,25 @@ int create_source_directory(const char *root, int num_files, int num_dirs,
 
         fclose(f);
 
-        if ((i + 1) % 10 == 0)
+        if ((i + 1) % 100 == 0)
         {
             if (opts->verbose == 0) {
-                print_status_update("Created %d/%d source files (%d duplicates so far)",
+                print_status_update("Created %d/%d source files (%d duplicates)",
                                   i + 1, num_files, duplicates_created);
             } else if (opts->verbose) {
-                printf("  Created %d/%d source files (%d duplicates so far)\n",
+                printf("  Created %d/%d source files (%d duplicates)\n",
                        i + 1, num_files, duplicates_created);
             }
         }
 
-        free(dir);
         free(filename);
     }
 
-    /* Clear status line if we were showing progress updates */
-    if (opts->verbose == 0) {
+    free(ref_array);
+    free_dir_cache();
+
+    if (opts->verbose == 0)
         clear_status_line();
-    }
 
     return duplicates_created;
 }
@@ -624,7 +703,6 @@ void free_file_list(file_entry_t *list)
     {
         next = current->next;
         free(current->path);
-        free(current->content);
         free(current);
         current = next;
     }

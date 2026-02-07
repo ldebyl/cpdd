@@ -82,6 +82,7 @@ typedef struct {
     int files_hard_linked;   /* Files hard linked */
     int files_soft_linked;   /* Files soft linked */
     int files_skipped;       /* Files skipped (no-clobber) */
+    int files_failed;        /* Files that failed to copy */
     off_t bytes_copied;      /* Bytes physically copied */
     off_t bytes_hard_linked; /* Bytes saved via hard links */
     off_t bytes_soft_linked; /* Bytes saved via soft links */
@@ -98,6 +99,9 @@ typedef struct {
     int files_with_size_matches; /* Source files that had at least one size match in reference */
     int unique_ref_sizes;    /* Number of unique sizes in reference files */
     int total_ref_files;     /* Total reference files scanned */
+
+    /* Memory usage */
+    size_t index_memory;     /* Total bytes used by reference index */
 } stats_t;
 
 /* Command line options */
@@ -193,6 +197,8 @@ void clear_status_line(void);
 void fclear_status_line(FILE *stream);
 void print_stats_at_bottom(const char *format, ...);
 void print_verbose(const char *format, ...);
+void print_error(const char *format, ...);
+void print_warning(const char *format, ...);
 void finalize_stats_line(void);
 void truncate_path(const char *path, char *buffer, size_t buffer_size, int max_width);
 
@@ -203,6 +209,8 @@ const char *color_blue(void);
 const char *color_yellow(void);
 const char *color_cyan(void);
 const char *color_dim(void);
+const char *color_red(void);
+const char *color_bold(void);
 
 /* Signal handling and cleanup */
 void register_incomplete_file(const char *path);

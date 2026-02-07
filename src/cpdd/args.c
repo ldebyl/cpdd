@@ -31,7 +31,7 @@ int parse_preserve_list(const char *preserve_list, preserve_t *preserve) {
     
     list_copy = strdup(preserve_list);
     if (!list_copy) {
-        fprintf(stderr, "Error: Memory allocation failed\n");
+        print_error("Memory allocation failed");
         return -1;
     }
     
@@ -49,7 +49,7 @@ int parse_preserve_list(const char *preserve_list, preserve_t *preserve) {
             preserve->ownership = 1;
             preserve->timestamps = 1;
         } else {
-            fprintf(stderr, "Error: Invalid preserve attribute '%s'\n", token);
+            print_error("Invalid preserve attribute '%s'", token);
             fprintf(stderr, "Valid attributes: mode, ownership, timestamps, all\n");
             free(list_copy);
             return -1;
@@ -160,7 +160,7 @@ int parse_args(int argc, char *argv[], options_t *opts) {
                 opts->ref_dir_count++;
                 char **new_ref_dirs = realloc(opts->ref_dirs, opts->ref_dir_count * sizeof(char *));
                 if (!new_ref_dirs) {
-                    fprintf(stderr, "Error: Memory allocation failed for reference directories\n");
+                    print_error("Memory allocation failed for reference directories");
                     return -1;
                 }
                 opts->ref_dirs = new_ref_dirs;
@@ -169,14 +169,14 @@ int parse_args(int argc, char *argv[], options_t *opts) {
             }
             case 'L':
                 if (opts->link_type != LINK_NONE) {
-                    fprintf(stderr, "Error: Cannot specify both hard and symbolic links\n");
+                    print_error("Cannot specify both hard and symbolic links");
                     return -1;
                 }
                 opts->link_type = LINK_HARD;
                 break;
             case 's':
                 if (opts->link_type != LINK_NONE) {
-                    fprintf(stderr, "Error: Cannot specify both hard and symbolic links\n");
+                    print_error("Cannot specify both hard and symbolic links");
                     return -1;
                 }
                 opts->link_type = LINK_SOFT;
@@ -186,21 +186,21 @@ int parse_args(int argc, char *argv[], options_t *opts) {
                 break;
             case 'n':
                 if (opts->interactive || opts->update) {
-                    fprintf(stderr, "Error: Cannot specify both --no-clobber and other overwrite options\n");
+                    print_error("Cannot specify both --no-clobber and other overwrite options");
                     return -1;
                 }
                 opts->no_clobber = 1;
                 break;
             case 'i':
                 if (opts->no_clobber || opts->update) {
-                    fprintf(stderr, "Error: Cannot specify both --interactive and other overwrite options\n");
+                    print_error("Cannot specify both --interactive and other overwrite options");
                     return -1;
                 }
                 opts->interactive = 1;
                 break;
             case 'u':
                 if (opts->no_clobber || opts->interactive) {
-                    fprintf(stderr, "Error: Cannot specify both --update and other overwrite options\n");
+                    print_error("Cannot specify both --update and other overwrite options");
                     return -1;
                 }
                 opts->update = 1;
@@ -233,7 +233,7 @@ int parse_args(int argc, char *argv[], options_t *opts) {
             case 'B': {
                 opts->block_size = parse_size(optarg);
                 if (opts->block_size == 0) {
-                    fprintf(stderr, "Error: Invalid block size '%s'\n", optarg);
+                    print_error("Invalid block size '%s'", optarg);
                     return -1;
                 }
                 break;
@@ -267,7 +267,7 @@ int parse_args(int argc, char *argv[], options_t *opts) {
     }
     
     if (optind + 1 >= argc) {
-        fprintf(stderr, "Error: At least one SOURCE and DESTINATION required\n");
+        print_error("At least one SOURCE and DESTINATION required");
         print_usage(argv[0]);
         return -1;
     }
@@ -280,24 +280,24 @@ int parse_args(int argc, char *argv[], options_t *opts) {
     /* Validate --only-new requirements and conflicts */
     if (opts->only_new) {
         if (opts->ref_dir_count == 0) {
-            fprintf(stderr, "Error: --only-new requires at least one reference directory (-r)\n");
+            print_error("--only-new requires at least one reference directory (-r)");
             return -1;
         }
         if (opts->link_type != LINK_NONE) {
-            fprintf(stderr, "Error: --only-new cannot be used with --hard-link or --symbolic-link\n");
+            print_error("--only-new cannot be used with --hard-link or --symbolic-link");
             return -1;
         }
     }
 
     /* Validate --no-verify requirements */
     if (opts->no_verify && !opts->match_name) {
-        fprintf(stderr, "Error: --no-verify requires --match-name\n");
+        print_error("--no-verify requires --match-name");
         return -1;
     }
 
     /* Validate symlink options are mutually exclusive */
     if (opts->no_dereference && opts->skip_symlinks) {
-        fprintf(stderr, "Error: --no-dereference and --skip-symlinks are mutually exclusive\n");
+        print_error("--no-dereference and --skip-symlinks are mutually exclusive");
         return -1;
     }
 
@@ -307,7 +307,7 @@ int parse_args(int argc, char *argv[], options_t *opts) {
     }
 
     if (opts->link_type != LINK_NONE && opts->ref_dir_count == 0) {
-        fprintf(stderr, "Error: Link type specified but no reference directory provided\n");
+        print_error("Link type specified but no reference directory provided");
         return -1;
     }
 

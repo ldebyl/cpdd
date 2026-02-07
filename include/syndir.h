@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <dirent.h>
 #include <time.h>
 #include <errno.h>
 #include <math.h>
@@ -43,9 +44,7 @@ typedef struct {
 
 /* File entry for tracking generated files */
 typedef struct file_entry {
-    char *path;            /* Relative path to file */
-    char *content;         /* File content */
-    size_t content_size;   /* Size of content in bytes */
+    char *path;            /* Full path to file on disk */
     struct file_entry *next; /* Next entry in linked list */
 } file_entry_t;
 

@@ -24,17 +24,19 @@
 
 #include "cpdd.h"
 
-/* Global verbose flag definition */
+/* Global verbose flag for VERBOSE() macro */
 int g_verbose = 0;
 
-// Signal handler to clean up incomplete file on termination
-static void signal_handler(int sig) {
+/* Clean up incomplete file and exit on signal */
+static void signal_handler(int sig)
+{
     cleanup_incomplete_file();
     exit(128 + sig);
 }
 
-// Sets up signal handlers for SIGINT and SIGTERM
-static void setup_signal_handlers(void) {
+/* Register handlers for common termination signals */
+static void setup_signal_handlers(void)
+{
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
     signal(SIGHUP, signal_handler);
@@ -64,7 +66,7 @@ int main(int argc, char *argv[]) {
         if (opts.show_stats && opts.verbose == 0) {
             clear_status_line();  /* Clean up status display */
         }
-        fprintf(stderr, "Error: Copy operation failed\n");
+        print_error("Copy operation failed");
         return 1;
     }
     
