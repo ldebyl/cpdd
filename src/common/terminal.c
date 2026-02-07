@@ -29,16 +29,17 @@
 
 static int terminal_capability_checked = 0;
 static int supports_clear_eol = 0;
+static int supports_color = 0;
 static int stats_line_active = 0;
 
 static int terminal_supports_clear_eol_for_fd(int fd) {
     if (!isatty(fd)) {
         return 0;
     }
-    
+
     const char *term = getenv("TERM");
-    
-    if (strstr(term, "xterm")  || 
+
+    if (strstr(term, "xterm")  ||
         strstr(term, "screen") ||
         strstr(term, "tmux")   ||
         strstr(term, "vt100")  ||
@@ -55,33 +56,71 @@ static int terminal_supports_clear_eol_for_fd(int fd) {
     }
 }
 
+static int terminal_supports_color_for_fd(int fd) {
+    /* Respect NO_COLOR environment variable */
+    if (getenv("NO_COLOR") != NULL) {
+        return 0;
+    }
+
+    if (!isatty(fd)) {
+        return 0;
+    }
+
+    const char *term = getenv("TERM");
+    if (!term) {
+        return 0;
+    }
+
+    /* Check for common color-capable terminals */
+    if (strstr(term, "xterm")  ||
+        strstr(term, "screen") ||
+        strstr(term, "tmux")   ||
+        strstr(term, "linux")  ||
+        strstr(term, "color")  ||
+        strstr(term, "ansi")   ||
+        strstr(term, "256"))
+    {
+        return 1;
+    }
+
+    return 0;
+}
+
 int terminal_supports_clear_eol(void) {
     if (terminal_capability_checked) {
         return supports_clear_eol;
     }
-    
+
     terminal_capability_checked = 1;
-    supports_clear_eol = terminal_supports_clear_eol_for_fd(STDOUT_FILENO);
-    
+    supports_clear_eol = terminal_supports_clear_eol_for_fd(STDERR_FILENO);
+    supports_color = terminal_supports_color_for_fd(STDERR_FILENO);
+
     return supports_clear_eol;
+}
+
+int terminal_supports_color(void) {
+    if (!terminal_capability_checked) {
+        terminal_supports_clear_eol(); /* Initialize */
+    }
+    return supports_color;
 }
 
 void print_status_update(const char *format, ...) {
     va_list args;
     va_start(args, format);
-    
+
     if (terminal_supports_clear_eol()) {
         /* Use reverse video for status line to make it stand out */
-        printf("\r\033[7m");  /* \033[7m = reverse video */
-        vprintf(format, args);
-        printf("\033[0m");    /* \033[0m = reset attributes */
-        printf("\033[K");     /* Clear to end of line */
-        fflush(stdout);
+        fprintf(stderr, "\r\033[7m");  /* \033[7m = reverse video */
+        vfprintf(stderr, format, args);
+        fprintf(stderr, "\033[0m");    /* \033[0m = reset attributes */
+        fprintf(stderr, "\033[K");     /* Clear to end of line */
+        fflush(stderr);
     } else {
-        vprintf(format, args);
-        printf("\n");
+        vfprintf(stderr, format, args);
+        fprintf(stderr, "\n");
     }
-    
+
     va_end(args);
 }
 
@@ -104,7 +143,7 @@ void fprint_status_update(FILE *stream, const char *format, ...) {
 }
 
 void clear_status_line(void) {
-    fclear_status_line(stdout);
+    fclear_status_line(stderr);
 }
 
 void fclear_status_line(FILE *stream) {
@@ -120,21 +159,21 @@ void print_stats_at_bottom(const char *format, ...) {
     va_start(args, format);
 
     if (!terminal_supports_clear_eol()) {
-        /* Fallback for non-terminal output */
-        printf("[STATS] ");
-        vprintf(format, args);
-        printf("\n");
-        fflush(stdout);
+        /* Fallback for non-terminal output - write to stderr */
+        fprintf(stderr, "[STATS] ");
+        vfprintf(stderr, format, args);
+        fprintf(stderr, "\n");
+        fflush(stderr);
         va_end(args);
         return;
     }
 
-    /* Update stats on current line */
-    printf("\r\033[7m[STATS] "); /* Reverse video + label */
-    vprintf(format, args);
-    printf("\033[0m");           /* Reset attributes */
-    printf("\033[K");            /* Clear to end of line */
-    fflush(stdout);
+    /* Update stats on current line on stderr */
+    fprintf(stderr, "\r\033[7m[STATS] "); /* Reverse video + label */
+    vfprintf(stderr, format, args);
+    fprintf(stderr, "\033[0m");           /* Reset attributes */
+    fprintf(stderr, "\033[K");            /* Clear to end of line */
+    fflush(stderr);
     stats_line_active = 1;
 
     va_end(args);
@@ -146,23 +185,23 @@ void print_verbose(const char *format, ...) {
 
     /* Clear stats line if active */
     if (stats_line_active && terminal_supports_clear_eol()) {
-        printf("\r\033[K");  /* Clear line */
+        fprintf(stderr, "\r\033[K");  /* Clear line */
         stats_line_active = 0;
     }
 
-    /* Print verbose message */
+    /* Print verbose message to stderr */
     va_start(args, format);
-    vprintf(format, args);
+    vfprintf(stderr, format, args);
     va_end(args);
-    printf("\n");
-    fflush(stdout);
+    fprintf(stderr, "\n");
+    fflush(stderr);
 }
 
 /* Clear stats line at end of operation */
 void finalize_stats_line(void) {
     if (stats_line_active && terminal_supports_clear_eol()) {
-        printf("\n");  /* Move to new line, preserving stats */
-        fflush(stdout);
+        fprintf(stderr, "\n");  /* Move to new line, preserving stats */
+        fflush(stderr);
         stats_line_active = 0;
     }
 }
@@ -170,26 +209,51 @@ void finalize_stats_line(void) {
 /* Truncate a path to fit within max_width, showing first and last parts */
 void truncate_path(const char *path, char *buffer, size_t buffer_size, int max_width) {
     int path_len = strlen(path);
-    
+
     if (path_len <= max_width) {
         /* Path fits, just copy it */
         strncpy(buffer, path, buffer_size - 1);
         buffer[buffer_size - 1] = '\0';
         return;
     }
-    
+
     /* Calculate how much to show from start and end */
     int prefix_len = (max_width - 3) / 2;  /* -3 for "..." */
     int suffix_len = max_width - prefix_len - 3;
-    
+
     if (prefix_len < 1 || suffix_len < 1) {
         /* Too short to truncate meaningfully */
         strncpy(buffer, path, buffer_size - 1);
         buffer[buffer_size - 1] = '\0';
         return;
     }
-    
-    snprintf(buffer, buffer_size, "%.*s...%s", 
-             prefix_len, path, 
+
+    snprintf(buffer, buffer_size, "%.*s...%s",
+             prefix_len, path,
              path + path_len - suffix_len);
+}
+
+/* ANSI color codes */
+const char *color_reset(void) {
+    return terminal_supports_color() ? "\033[0m" : "";
+}
+
+const char *color_green(void) {
+    return terminal_supports_color() ? "\033[32m" : "";
+}
+
+const char *color_blue(void) {
+    return terminal_supports_color() ? "\033[34m" : "";
+}
+
+const char *color_yellow(void) {
+    return terminal_supports_color() ? "\033[33m" : "";
+}
+
+const char *color_cyan(void) {
+    return terminal_supports_color() ? "\033[36m" : "";
+}
+
+const char *color_dim(void) {
+    return terminal_supports_color() ? "\033[2m" : "";
 }

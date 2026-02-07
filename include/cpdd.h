@@ -50,7 +50,7 @@
 /* Logging Macros -- note the do/while allows inclusion and exclusion of the semicolon */
 extern int g_verbose;
 #define VERBOSE(...) do { \
-    if (g_verbose) printf(__VA_ARGS__); \
+    if (g_verbose) fprintf(stderr, __VA_ARGS__); \
 } while(0)
 
 /* Linking strategy options */
@@ -186,6 +186,7 @@ void print_usage(const char *program_name);
 
 /* Terminal output and status display */
 int terminal_supports_clear_eol(void);
+int terminal_supports_color(void);
 void print_status_update(const char *format, ...);
 void fprint_status_update(FILE *stream, const char *format, ...);
 void clear_status_line(void);
@@ -194,6 +195,14 @@ void print_stats_at_bottom(const char *format, ...);
 void print_verbose(const char *format, ...);
 void finalize_stats_line(void);
 void truncate_path(const char *path, char *buffer, size_t buffer_size, int max_width);
+
+/* ANSI color codes (empty strings if colors not supported) */
+const char *color_reset(void);
+const char *color_green(void);
+const char *color_blue(void);
+const char *color_yellow(void);
+const char *color_cyan(void);
+const char *color_dim(void);
 
 /* Signal handling and cleanup */
 void register_incomplete_file(const char *path);

@@ -106,7 +106,13 @@
 
        1m-v22m, 1m--verbose0m
               Verbose output showing files being processed and their  disposi-
-              tion.
+              tion. Can be specified multiple times to increase verbosity:
+
+              o   1m-v 22m- Show basic operation progress (level 1)
+
+              o   1m-vv 22m- Show detailed file operations (level 2)
+
+              o   1m-vvv 22m- Show debug information (level 3)
 
        1m--help 22mDisplay help message and exit.
 

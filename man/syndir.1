@@ -20,8 +20,8 @@ Generate \fICOUNT\fR files in total (default: 100). Files are distributed betwee
 .BR \-d ", " \-\-dirs " " \fICOUNT\fR
 Create \fICOUNT\fR directories in each tree (default: 10). Use 0 for flat directory structure.
 .TP
-.BR \-p ", " \-\-percent " " \fIPCT\fR
-Percentage of source files that duplicate reference content (0-100, default: 30). Higher values create more deduplication opportunities.
+.BR \-p ", " \-\-percent " " \fIFRACTION\fR
+Fraction of source files that duplicate reference content (0.0-1.0, default: 0.3). Higher values create more deduplication opportunities.
 .TP
 .BR \-\-size-p50 " " \fISIZE\fR
 50th percentile file size in bytes (default: 4096). Half of generated files will be smaller than this size.

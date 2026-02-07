@@ -171,7 +171,12 @@ static int copy_symlink(const char *src, const char *dest, const options_t *opts
 
     if (opts->dry_run) {
         if (opts->verbose) {
-            print_verbose("[DRY RUN] %s -> %s (symlink to %s)", src, dest, link_target);
+            print_verbose("[DRY RUN] %s[SYMLINK]%s %s %s->%s %s %s(target: %s)%s",
+                        color_cyan(), color_reset(),
+                        src,
+                        color_dim(), color_reset(),
+                        dest,
+                        color_dim(), link_target, color_reset());
         }
         return 0;
     }
@@ -186,7 +191,12 @@ static int copy_symlink(const char *src, const char *dest, const options_t *opts
     }
 
     if (opts->verbose) {
-        print_verbose("%s -> %s (symlink to %s)", src, dest, link_target);
+        print_verbose("%s[SYMLINK]%s %s %s->%s %s %s(target: %s)%s",
+                    color_cyan(), color_reset(),
+                    src,
+                    color_dim(), color_reset(),
+                    dest,
+                    color_dim(), link_target, color_reset());
     }
 
     return 0;
@@ -361,44 +371,44 @@ void print_statistics(const stats_t *stats, int human_readable) {
     format_bytes(stats->bytes_hard_linked, human_readable, linked_bytes, sizeof(linked_bytes));
     format_bytes(stats->bytes_soft_linked, human_readable, soft_linked_bytes, sizeof(soft_linked_bytes));
     
-    printf("\nStatistics:\n");
-    printf("  Files copied:     %d (%s)\n", stats->files_copied, copied_bytes);
-    printf("  Files hard linked: %d (%s)\n", stats->files_hard_linked, linked_bytes);
-    printf("  Files soft linked: %d (%s)\n", stats->files_soft_linked, soft_linked_bytes);
-    printf("  Files skipped:    %d\n", stats->files_skipped);
-    
+    fprintf(stderr, "\n%sStatistics:%s\n", color_cyan(), color_reset());
+    fprintf(stderr, "  Files copied:      %s%d%s (%s)\n", color_green(), stats->files_copied, color_reset(), copied_bytes);
+    fprintf(stderr, "  Files hard linked: %s%d%s (%s)\n", color_blue(), stats->files_hard_linked, color_reset(), linked_bytes);
+    fprintf(stderr, "  Files soft linked: %s%d%s (%s)\n", color_blue(), stats->files_soft_linked, color_reset(), soft_linked_bytes);
+    fprintf(stderr, "  Files skipped:     %s%d%s\n", color_yellow(), stats->files_skipped, color_reset());
+
     off_t total_bytes = stats->bytes_copied + stats->bytes_hard_linked + stats->bytes_soft_linked;
     int total_files = stats->files_copied + stats->files_hard_linked + stats->files_soft_linked;
     char total_bytes_str[32];
     format_bytes(total_bytes, human_readable, total_bytes_str, sizeof(total_bytes_str));
-    
-    printf("  Total files:      %d (%s)\n", total_files, total_bytes_str);
-    
+
+    fprintf(stderr, "  Total files:       %s%d%s (%s)\n", color_cyan(), total_files, color_reset(), total_bytes_str);
+
     /* Display cache statistics if any comparisons were made */
     if (stats->files_compared > 0) {
-        printf("\nCache Statistics:\n");
-        printf("  Files compared:   %d\n", stats->files_compared);
-        printf("  Fast rejections:  %d (%.1f%%)\n", stats->cache_hits, 
+        fprintf(stderr, "\n%sCache Statistics:%s\n", color_cyan(), color_reset());
+        fprintf(stderr, "  Files compared:   %d\n", stats->files_compared);
+        fprintf(stderr, "  Fast rejections:  %d (%.1f%%)\n", stats->cache_hits,
                (double)stats->cache_hits / stats->files_compared * 100.0);
-        
+
         double avg_cache_depth = (double)stats->total_cache_depth / stats->files_compared;
-        printf("  Cache depth - avg: %.1f, min: %d, max: %d blocks\n", 
+        fprintf(stderr, "  Cache depth - avg: %.1f, min: %d, max: %d blocks\n",
                avg_cache_depth, stats->min_cache_depth, stats->max_cache_depth);
     }
-    
+
     /* Display size collision statistics */
     if (stats->total_ref_files > 0 && stats->total_source_files > 0) {
-        printf("\nSize Collision Statistics:\n");
-        printf("  Reference files:  %d (with %d unique sizes)\n", 
+        fprintf(stderr, "\n%sSize Collision Statistics:%s\n", color_cyan(), color_reset());
+        fprintf(stderr, "  Reference files:  %d (with %d unique sizes)\n",
                stats->total_ref_files, stats->unique_ref_sizes);
-        printf("  Source files:     %d (%d had size matches)\n", 
+        fprintf(stderr, "  Source files:     %d (%d had size matches)\n",
                stats->total_source_files, stats->files_with_size_matches);
-        
+
         double ref_unique_pct = (double)stats->unique_ref_sizes / stats->total_ref_files * 100.0;
         double size_match_pct = (double)stats->files_with_size_matches / stats->total_source_files * 100.0;
-        
-        printf("  Unique ref sizes: %.1f%% (higher = fewer opportunities for matching)\n", ref_unique_pct);
-        printf("  Size matches:     %.1f%% (files that proceeded to content comparison)\n", size_match_pct);
+
+        fprintf(stderr, "  Unique ref sizes: %.1f%% (higher = fewer opportunities for matching)\n", ref_unique_pct);
+        fprintf(stderr, "  Size matches:     %.1f%% (files that proceeded to content comparison)\n", size_match_pct);
     }
 }
 
@@ -492,7 +502,10 @@ int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
         struct stat lstat_st;
         if (lstat(src, &lstat_st) == 0 && S_ISLNK(lstat_st.st_mode)) {
             if (opts->verbose >= 2) {
-                print_verbose("skipping symlink: %s", src);
+                print_verbose("%s[SKIP]%s %s %s(symlink)%s",
+                            color_yellow(), color_reset(),
+                            src,
+                            color_dim(), color_reset());
             }
             stats->files_skipped++;
             return 0;
@@ -529,7 +542,10 @@ int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
         /* Check if we should overwrite */
         if (!should_overwrite(src, dest, opts)) {
             if (opts->verbose) {
-                print_verbose("skipping '%s' (not overwriting)", dest);
+                print_verbose("%s[SKIP]%s %s %s(exists)%s",
+                            color_yellow(), color_reset(),
+                            dest,
+                            color_dim(), color_reset());
             }
             stats->files_skipped++;
             return 0;
@@ -547,7 +563,10 @@ int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
     /* At this point, we either have a regular file or a dereferenced symlink */
     if (!S_ISREG(src_st.st_mode)) {
         if (opts->verbose >= 2) {
-            fprintf(stderr, "Warning: Skipping non-regular file: %s\n", src);
+            print_verbose("%s[SKIP]%s %s %s(non-regular file)%s",
+                        color_yellow(), color_reset(),
+                        src,
+                        color_dim(), color_reset());
         }
         stats->files_skipped++;
         return 0;
@@ -556,7 +575,10 @@ int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
     /* Check if we should overwrite */
     if (!should_overwrite(src, dest, opts)) {
         if (opts->verbose) {
-            print_verbose("skipping '%s' (not overwriting)", dest);
+            print_verbose("%s[SKIP]%s %s %s(exists)%s",
+                        color_yellow(), color_reset(),
+                        dest,
+                        color_dim(), color_reset());
         }
         stats->files_skipped++;
         return 0;
@@ -571,7 +593,10 @@ int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
     /* If --only-new is set and file exists in reference, skip it */
     if (opts->only_new && matching_file) {
         if (opts->verbose) {
-            print_verbose("skipping '%s' (already exists in reference: %s)", src, matching_file->path);
+            print_verbose("%s[SKIP]%s %s %s(in reference: %s)%s",
+                        color_yellow(), color_reset(),
+                        src,
+                        color_dim(), matching_file->path, color_reset());
         }
         stats->files_skipped++;
         return 0;
@@ -600,7 +625,13 @@ int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
 
                     if (opts->verbose) {
                         const char *dry_run_prefix = opts->dry_run ? "[DRY RUN] " : "";
-                        print_verbose("%s%s -> %s (hard link to %s)", dry_run_prefix, src, dest, matching_file->path);
+                        print_verbose("%s%s[HARD LINK]%s %s %s<-%s %s %s(source: %s)%s",
+                                    dry_run_prefix,
+                                    color_blue(), color_reset(),
+                                    dest,
+                                    color_dim(), color_reset(),
+                                    matching_file->path,
+                                    color_dim(), src, color_reset());
                     }
                     return 0;
                 } else {
@@ -613,7 +644,13 @@ int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
 
                     if (opts->verbose) {
                         const char *dry_run_prefix = opts->dry_run ? "[DRY RUN] " : "";
-                        print_verbose("%s%s -> %s (soft link to %s)", dry_run_prefix, src, dest, matching_file->path);
+                        print_verbose("%s%s[SOFT LINK]%s %s %s<-%s %s %s(source: %s)%s",
+                                    dry_run_prefix,
+                                    color_cyan(), color_reset(),
+                                    dest,
+                                    color_dim(), color_reset(),
+                                    matching_file->path,
+                                    color_dim(), src, color_reset());
                     }
                     return 0;
                 } else {
@@ -641,7 +678,12 @@ int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
     
     if (opts->verbose) {
         const char *dry_run_prefix = opts->dry_run ? "[DRY RUN] " : "";
-        print_verbose("%s%s -> %s (copied)", dry_run_prefix, src, dest);
+        print_verbose("%s%s[COPY]%s %s %s->%s %s",
+                    dry_run_prefix,
+                    color_green(), color_reset(),
+                    src,
+                    color_dim(), color_reset(),
+                    dest);
     }
 
     return 0;
@@ -688,7 +730,10 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
             struct stat lstat_st;
             if (lstat(src_full, &lstat_st) == 0 && S_ISLNK(lstat_st.st_mode)) {
                 if (opts->verbose >= 2) {
-                    printf("skipping symlink: %s\n", src_full);
+                    print_verbose("%s[SKIP]%s %s %s(symlink)%s",
+                                color_yellow(), color_reset(),
+                                src_full,
+                                color_dim(), color_reset());
                 }
                 continue;
             }

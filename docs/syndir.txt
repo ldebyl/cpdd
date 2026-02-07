@@ -28,9 +28,9 @@
               Create 4mCOUNT24m directories in each tree (default: 10). Use  0  for
               flat directory structure.
 
-       1m-p22m, 1m--percent 4m22mPCT0m
-              Percentage  of  source  files  that  duplicate reference content
-              (0-100, default: 30). Higher values  create  more  deduplication
+       1m-p22m, 1m--percent 4m22mFRACTION0m
+              Fraction  of  source  files  that  duplicate  reference  content
+              (0.0-1.0, default: 0.3). Higher values create more deduplication
               opportunities.
 
        1m--size-p50 4m22mSIZE0m
@@ -50,11 +50,11 @@
               1.0 for larger files, < 1.0 for smaller files.
 
        1m--seed 4m22mSEED0m
-              Sets  the  seed for random generation. Set this for reproducible
+              Sets the seed for random generation. Set this  for  reproducible
               generation.
 
        1m-v22m, 1m--verbose0m
-              Show verbose output during  generation,  including  files  being
+              Show  verbose  output  during  generation, including files being
               created and their sizes.
 
        1m-h22m, 1m--help0m
@@ -83,7 +83,7 @@
               du -sh /tmp/ref /tmp/src /tmp/dest
 
 1mFILE SIZE DISTRIBUTION0m
-       1msyndir  22mgenerates  files  with  realistic size distributions using per-
+       1msyndir 22mgenerates files with realistic  size  distributions  using  per-
        centile-based parameters:
 
        o   50% of files are smaller than 1m--size-p500m
@@ -94,7 +94,7 @@
 
        o   The 1m--size-scale 22mfactor multiplies all sizes uniformly
 
-           This approach creates natural distributions similar  to  real-world
+           This  approach  creates natural distributions similar to real-world
            file collections.
 
 1mDUPLICATION STRATEGY0m
@@ -108,7 +108,7 @@
 
        4.  This creates perfect deduplication candidates for testing
 
-           Non-duplicate  files contain unique random content generated from a
+           Non-duplicate files contain unique random content generated from  a
            pseudorandom source.
 
 1mEXIT STATUS0m
@@ -122,10 +122,10 @@
 
            rm -rf /tmp/ref /tmp/src /tmp/dest
 
-       The size percentile parameters must be in  ascending  order:  p50   p95
+       The  size  percentile  parameters  must be in ascending order: p50  p95
        max.
 
-       For  testing  scenarios, typical duplication percentages range from 20%
+       For testing scenarios, typical duplication percentages range  from  20%
        (conservative) to 80% (aggressive deduplication scenarios).
 
 1mEXAMPLES DIRECTORY0m
