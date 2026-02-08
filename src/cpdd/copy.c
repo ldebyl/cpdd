@@ -1,18 +1,18 @@
 /*
    * cpdd/copy.c - Content-based copy with deduplication
-   * 
+   *
    * Copyright (c) 2025 Lee de Byl <lee@32kb.net>
-   * 
+   *
    * Permission is hereby granted, free of charge, to any person obtaining a copy
    * of this software and associated documentation files (the "Software"), to deal
    * in the Software without restriction, including without limitation the rights
    * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
    * copies of the Software, and to permit persons to whom the Software is
    * furnished to do so, subject to the following conditions:
-   * 
+   *
    * The above copyright notice and this permission notice shall be included in
    * all copies or substantial portions of the Software.
-   * 
+   *
    * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
    * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
    * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -195,15 +195,15 @@ static int copy_symlink(const char *src, const char *dest, const options_t *opts
 int should_overwrite(const char *src_path, const char *dest_path, const options_t *opts)
 {
     struct stat dest_st, src_st;
-    
+
     if (stat(dest_path, &dest_st) != 0) {
         return 1; /* Destination doesn't exist, safe to copy */
     }
-    
+
     if (opts->no_clobber) {
         return 0;
     }
-    
+
     if (opts->update) {
         if (stat(src_path, &src_st) != 0) {
             return 0; /* Can't stat source, don't overwrite */
@@ -211,18 +211,18 @@ int should_overwrite(const char *src_path, const char *dest_path, const options_
         /* Only overwrite if source is newer than destination */
         return (src_st.st_mtime > dest_st.st_mtime);
     }
-    
+
     if (opts->interactive) {
         char response;
         printf("overwrite '%s'? ", dest_path);
         fflush(stdout);
-        
+
         if (scanf(" %c", &response) == 1) {
             return (response == 'y' || response == 'Y');
         }
         return 0;
     }
-    
+
     return 1; /* Default: overwrite */
 }
 
@@ -231,23 +231,23 @@ int preserve_file_attributes(const char *src, const char *dest, const preserve_t
 {
     struct stat src_st;
     struct utimbuf times;
-    
+
     if (stat(src, &src_st) != 0) {
         return -1;
     }
-    
+
     if (preserve->mode) {
         if (chmod(dest, src_st.st_mode) != 0) {
             return -1;
         }
     }
-    
+
     if (preserve->ownership) {
         if (chown(dest, src_st.st_uid, src_st.st_gid) != 0) {
             return -1;
         }
     }
-    
+
     if (preserve->timestamps) {
         times.actime = src_st.st_atime;
         times.modtime = src_st.st_mtime;
@@ -255,7 +255,7 @@ int preserve_file_attributes(const char *src, const char *dest, const preserve_t
             return -1;
         }
     }
-    
+
     return 0;
 }
 
@@ -264,11 +264,11 @@ size_t parse_size(const char *size_str)
 {
     char *endptr;
     unsigned long long value = strtoull(size_str, &endptr, 10);
-    
+
     if (value == 0 || endptr == size_str) {
         return 0;  /* Invalid number */
     }
-    
+
     /* Handle suffix */
     if (*endptr != '\0') {
         switch (*endptr) {
@@ -288,12 +288,12 @@ size_t parse_size(const char *size_str)
                 return 0;  /* Invalid suffix */
         }
     }
-    
+
     /* Sanity check - block size should be reasonable */
     if (value < 512 || value > 16 * 1024 * 1024) {  /* 512B to 16MB */
         return 0;
     }
-    
+
     return (size_t)value;
 }
 
@@ -303,13 +303,13 @@ size_t get_optimal_block_size(const char *filename, const options_t *opts)
     if (opts->block_size > 0) {
         return opts->block_size;  /* User override */
     }
-    
+
     struct stat st;
     if (stat(filename, &st) == 0 && st.st_blksize > 0) {
         /* Use filesystem's preferred I/O block size */
         return (size_t)st.st_blksize;
     }
-    
+
     return BUFFER_SIZE;  /* Fallback to default */
 }
 
@@ -320,16 +320,16 @@ void format_bytes(off_t bytes, int human_readable, char *buffer, size_t buffer_s
         snprintf(buffer, buffer_size, "%lld bytes", (long long)bytes);
         return;
     }
-    
+
     const char *units[] = {"B", "K", "M", "G", "T", "P"};
     int unit = 0;
     double size = (double)bytes;
-    
+
     while (size >= 1024.0 && unit < 5) {
         size /= 1024.0;
         unit++;
     }
-    
+
     if (unit == 0) {
         snprintf(buffer, buffer_size, "%lld%s", (long long)bytes, units[unit]);
     } else if (size >= 100.0) {
@@ -347,24 +347,23 @@ void format_stats_line(const stats_t *stats, int human_readable, char *buffer, s
     char total_bytes_str[32];
     off_t total_bytes = stats->bytes_copied + stats->bytes_hard_linked + stats->bytes_soft_linked;
     int total_files = stats->files_copied + stats->files_hard_linked + stats->files_soft_linked;
-    
+
     format_bytes(total_bytes, human_readable, total_bytes_str, sizeof(total_bytes_str));
-    
-    snprintf(buffer, buffer_size, "Files: %d copied, %d linked, %d skipped | Total: %d files (%s)", 
-             stats->files_copied, stats->files_hard_linked + stats->files_soft_linked, 
+
+    snprintf(buffer, buffer_size, "Files: %d copied, %d linked, %d skipped | Total: %d files (%s)",
+             stats->files_copied, stats->files_hard_linked + stats->files_soft_linked,
              stats->files_skipped, total_files, total_bytes_str);
 }
-
 
 /* Print detailed final statistics to stderr */
 void print_statistics(const stats_t *stats, int human_readable)
 {
     char copied_bytes[32], linked_bytes[32], soft_linked_bytes[32];
-    
+
     format_bytes(stats->bytes_copied, human_readable, copied_bytes, sizeof(copied_bytes));
     format_bytes(stats->bytes_hard_linked, human_readable, linked_bytes, sizeof(linked_bytes));
     format_bytes(stats->bytes_soft_linked, human_readable, soft_linked_bytes, sizeof(soft_linked_bytes));
-    
+
     fprintf(stderr, "\n%sStatistics:%s\n", color_cyan(), color_reset());
     fprintf(stderr, "  Files copied:      %s%d%s (%s)\n", color_green(), stats->files_copied, color_reset(), copied_bytes);
     fprintf(stderr, "  Files hard linked: %s%d%s (%s)\n", color_blue(), stats->files_hard_linked, color_reset(), linked_bytes);
@@ -389,29 +388,29 @@ void print_statistics(const stats_t *stats, int human_readable)
                (double)stats->cache_hits / stats->files_compared * 100.0);
 
         double avg_cache_depth = (double)stats->total_cache_depth / stats->files_compared;
-        fprintf(stderr, "  Cache depth - avg: %.1f, min: %d, max: %d blocks\n",
+        fprintf(stderr, "  Cache depth:      avg: %.1f, min: %d, max: %d blocks\n",
                avg_cache_depth, stats->min_cache_depth, stats->max_cache_depth);
     }
 
     /* Display size collision statistics */
     if (stats->total_ref_files > 0 && stats->total_source_files > 0) {
         fprintf(stderr, "\n%sSize Collision Statistics:%s\n", color_cyan(), color_reset());
-        fprintf(stderr, "  Reference files:  %d (with %d unique sizes)\n",
-               stats->total_ref_files, stats->unique_ref_sizes);
-        fprintf(stderr, "  Source files:     %d (%d had size matches)\n",
-               stats->total_source_files, stats->files_with_size_matches);
+        fprintf(stderr, "  Reference files:  %d\n",
+               stats->total_ref_files);
+        fprintf(stderr, "  Source files:     %d\n",
+               stats->total_source_files);
 
         double ref_unique_pct = (double)stats->unique_ref_sizes / stats->total_ref_files * 100.0;
         double size_match_pct = (double)stats->files_with_size_matches / stats->total_source_files * 100.0;
 
-        fprintf(stderr, "  Unique ref sizes: %.1f%% (higher = fewer opportunities for matching)\n", ref_unique_pct);
-        fprintf(stderr, "  Size matches:     %.1f%% (files that proceeded to content comparison)\n", size_match_pct);
+        fprintf(stderr, "  Unique reference file sizes: %.1f%%\n", ref_unique_pct);
+        fprintf(stderr, "  Size matches:                %.1f%%\n", size_match_pct);
     }
 
     if (stats->index_memory > 0) {
         char mem_str[32];
         format_bytes((off_t)stats->index_memory, human_readable, mem_str, sizeof(mem_str));
-        fprintf(stderr, "\n%sIndex Memory:%s      %s\n", color_cyan(), color_reset(), mem_str);
+        fprintf(stderr, "\n%sIndex Memory:%s            %s\n", color_cyan(), color_reset(), mem_str);
     }
 }
 
@@ -421,7 +420,7 @@ static int create_directory(const char *path, mode_t mode, const options_t *opts
     if (opts->dry_run) {
         return 0; /* Pretend success */
     }
-    
+
     if (mkdir(path, mode) != 0 && errno != EEXIST) {
         return -1;
     }
@@ -434,33 +433,33 @@ static int create_parent_directories(const char *path, mode_t default_mode, cons
     char dir_path[MAX_PATH];
     char *slash;
     struct stat st;
-    
+
     strncpy(dir_path, path, sizeof(dir_path) - 1);
     dir_path[sizeof(dir_path) - 1] = '\0';
-    
+
     /* Find the last slash to get parent directory */
     slash = strrchr(dir_path, '/');
     if (!slash) {
         return 0; /* No parent directory needed */
     }
-    
+
     *slash = '\0'; /* Truncate to parent directory */
-    
+
     /* Check if parent already exists */
     if (stat(dir_path, &st) == 0) {
         return 0; /* Parent exists */
     }
-    
+
     /* Recursively create parent's parent */
     if (create_parent_directories(dir_path, default_mode, opts) != 0) {
         return -1;
     }
-    
+
     /* Create this directory */
     if (create_directory(dir_path, default_mode, opts) != 0) {
         return -1;
     }
-    
+
     return 0;
 }
 
@@ -468,17 +467,17 @@ static int create_parent_directories(const char *path, mode_t default_mode, cons
 int create_directory_structure(const char *src_path, const char *dest_path, const options_t *opts)
 {
     struct stat src_st;
-    
+
     if (stat(src_path, &src_st) != 0) {
         return -1;
     }
-    
+
     if (S_ISDIR(src_st.st_mode)) {
         /* Source is directory - create destination directory */
         if (create_directory(dest_path, src_st.st_mode, opts) != 0) {
             return -1;
         }
-        
+
         /* Preserve attributes if requested */
         if (opts->preserve.mode || opts->preserve.ownership || opts->preserve.timestamps) {
             if (!opts->dry_run) {
@@ -491,7 +490,7 @@ int create_directory_structure(const char *src_path, const char *dest_path, cons
             return -1;
         }
     }
-    
+
     return 0;
 }
 
@@ -606,7 +605,7 @@ int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
     /* Try to create a link to reference file if we found a match */
     if (matching_file && opts->link_type != LINK_NONE) {
         struct stat ref_st;
-        
+
         /* Get the size of the reference file */
         if (stat(matching_file->path, &ref_st) != 0) {
             if (opts->verbose >= 3) {
@@ -615,7 +614,7 @@ int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
         } else {
             /* Remove destination file if it exists */
             file_unlink(dest, opts);
-            
+
             if (opts->link_type == LINK_HARD) {
                 if (file_link(matching_file->path, dest, opts) == 0) {
                     stats->files_hard_linked++;
@@ -707,7 +706,7 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
     struct stat st;
     char src_full[MAX_PATH];
     char dest_full[MAX_PATH];
-    
+
     src_dir = opendir(src_path);
     if (!src_dir) {
         print_error("Cannot open source directory %s: %s", src_path, strerror(errno));
@@ -725,12 +724,12 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
             print_warning("Failed to preserve attributes for directory %s", dest_path);
         }
     }
-    
+
     while ((entry = readdir(src_dir)) != NULL) {
         if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
             continue;
         }
-        
+
         snprintf(src_full, sizeof(src_full), "%s/%s", src_path, entry->d_name);
         snprintf(dest_full, sizeof(dest_full), "%s/%s", dest_path, entry->d_name);
 
@@ -795,7 +794,7 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
             if (copy_or_link_file(src_full, dest_full, ref_files, opts, stats) != 0) {
                 continue;
             }
-            
+
             if (opts->show_stats && opts->verbose == 0) {
                 char stats_buffer[256];
                 format_stats_line(stats, opts->human_readable, stats_buffer, sizeof(stats_buffer));
@@ -815,7 +814,7 @@ int copy_directory(const options_t *opts, stats_t *stats)
     ref_files_t *ref_files = NULL;
     int overall_result = 0;
     int dest_is_dir = 0;
-    
+
     /* Check destination */
     if (stat(opts->dest_dir, &dest_st) == 0) {
         if (S_ISDIR(dest_st.st_mode)) {
@@ -830,7 +829,7 @@ int copy_directory(const options_t *opts, stats_t *stats)
             dest_is_dir = 1;
         }
     }
-    
+
     /* Scan reference directories once */
     if (opts->ref_dir_count > 0) {
         if (opts->verbose >= 3) {
@@ -843,19 +842,19 @@ int copy_directory(const options_t *opts, stats_t *stats)
             print_verbose("Found %d reference files across all directories", ref_files->count);
         }
     }
-    
+
     /* Process each source */
     for (int i = 0; i < opts->source_count; i++) {
         struct stat src_st;
         char dest_path[MAX_PATH];
         const char *src_path = opts->sources[i];
-        
+
         if (stat(src_path, &src_st) != 0) {
             print_error("Cannot access source %s: %s", src_path, strerror(errno));
             overall_result = -1;
             continue;
         }
-        
+
         /* Determine destination path */
         if (dest_is_dir || opts->source_count > 1) {
             /* Extract basename from source */
@@ -866,7 +865,7 @@ int copy_directory(const options_t *opts, stats_t *stats)
             strncpy(dest_path, opts->dest_dir, sizeof(dest_path) - 1);
             dest_path[sizeof(dest_path) - 1] = '\0';
         }
-        
+
         /* Copy source to destination */
         if (S_ISDIR(src_st.st_mode)) {
             if (copy_directory_recursive(src_path, dest_path, ref_files, opts, stats) != 0) {
@@ -877,7 +876,7 @@ int copy_directory(const options_t *opts, stats_t *stats)
                 overall_result = -1;
                 continue;
             }
-            
+
             if (opts->show_stats && opts->verbose == 0) {
                 char stats_buffer[256];
                 format_stats_line(stats, opts->human_readable, stats_buffer, sizeof(stats_buffer));

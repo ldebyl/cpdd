@@ -1,21 +1,21 @@
 /*
  * cpdd/src/common/md5.c - MD5 message digest implementation
- * 
+ *
  * This is the RSA Data Security, Inc. MD5 Message-Digest Algorithm
  * Reference implementation from RFC 1321, placed in the public domain.
- * 
- * Copyright (c) 2025 Lee de Byl <lee@32kb.net>
- * 
+ *
+ * Mdified 2025 Lee de Byl <lee@32kb.net>
+ *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
  * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
- * 
+ *
  * The above copyright notice and this permission notice shall be included in
  * all copies or substantial portions of the Software.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -221,21 +221,21 @@ int md5sum(const char *filename, unsigned char digest[MD5_DIGEST_LENGTH]) {
     MD5_CTX ctx;
     unsigned char buffer[8192];
     size_t bytes_read;
-    
+
     file = fopen(filename, "rb");
     if (!file) {
         return -1;
     }
-    
+
     MD5_Init(&ctx);
-    
+
     while ((bytes_read = fread(buffer, 1, sizeof(buffer), file)) > 0) {
         MD5_Update(&ctx, buffer, bytes_read);
     }
-    
+
     MD5_Final(digest, &ctx);
     fclose(file);
-    
+
     return 0;
 }
 
@@ -243,11 +243,11 @@ int md5sum(const char *filename, unsigned char digest[MD5_DIGEST_LENGTH]) {
 void calculate_block_hash(const unsigned char *block, size_t size, unsigned char *hash_out, int hash_size) {
     unsigned char full_md5[MD5_DIGEST_LENGTH];
     MD5_CTX ctx;
-    
+
     MD5_Init(&ctx);
     MD5_Update(&ctx, block, size);
     MD5_Final(full_md5, &ctx);
-    
+
     /* Copy only the requested number of bytes */
     memcpy(hash_out, full_md5, hash_size);
 }
