@@ -1,18 +1,18 @@
 /*
  * args.c - Command line argument parsing for cpdd
- * 
+ *
  * Copyright (c) 2025 Lee de Byl <lee@32kb.net>
- * 
+ *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
  * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
- * 
+ *
  * The above copyright notice and this permission notice shall be included in
  * all copies or substantial portions of the Software.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -28,13 +28,13 @@
 /* Parse comma-separated preserve attribute list */
 int parse_preserve_list(const char *preserve_list, preserve_t *preserve) {
     char *list_copy, *token, *saveptr;
-    
+
     list_copy = strdup(preserve_list);
     if (!list_copy) {
         print_error("Memory allocation failed");
         return -1;
     }
-    
+
     token = strtok_r(list_copy, ",", &saveptr);
     while (token) {
         if (strcmp(token, "mode") == 0) {
@@ -56,7 +56,7 @@ int parse_preserve_list(const char *preserve_list, preserve_t *preserve) {
         }
         token = strtok_r(NULL, ",", &saveptr);
     }
-    
+
     free(list_copy);
     return 0;
 }
@@ -83,15 +83,11 @@ void print_usage(const char *program_name) {
     printf("                           SIZE can be bytes or with suffix K, M, G (e.g., 64K, 1M)\n");
     printf("  -m, --match-name       Match on filename in addition to size\n");
     printf("  --no-verify            Skip content comparison (requires --match-name)\n");
-    printf("  --no-dereference       Don't follow symbolic links (copy them as-is)\n");
-    printf("  --skip-symlinks        Skip symbolic links entirely (don't copy them or their targets)\n");
+    printf("  --no-dereference       Don't follow symbolic links\n");
+    printf("  --skip-symlinks        Skip symbolic links entirely\n");
     printf("  -h, --human-readable   Show file sizes in human readable format\n");
     printf("  -v, --verbose          Verbose output (use multiple times for more verbosity: -vv, -vvv)\n");
     printf("  --help                 Show this help message\n");
-    printf("\nVerbosity levels:\n");
-    printf("  -v     Show basic operation progress (level 1)\n");
-    printf("  -vv    Show detailed file operations (level 2)\n");
-    printf("  -vvv   Show debug information (level 3)\n");
     printf("\nExamples:\n");
     printf("  %s file1.txt file2.txt dest/           # Copy multiple files\n", program_name);
     printf("  %s -R src1/ src2/ dest/                # Copy multiple directories\n", program_name);
@@ -104,7 +100,7 @@ void print_usage(const char *program_name) {
 int parse_args(int argc, char *argv[], options_t *opts) {
     int opt;
     int option_index = 0;
-    
+
     static struct option long_options[] = {
         {"reference",     required_argument, 0, 'r'},
         {"hard-link",     no_argument,       0, 'L'},
@@ -127,7 +123,7 @@ int parse_args(int argc, char *argv[], options_t *opts) {
         {"help",          no_argument,       0, 'H'},
         {0, 0, 0, 0}
     };
-    
+
     opts->sources = NULL;
     opts->source_count = 0;
     opts->dest_dir = NULL;
@@ -153,7 +149,7 @@ int parse_args(int argc, char *argv[], options_t *opts) {
     opts->preserve.timestamps = 0;
     opts->preserve.all = 0;
     g_verbose = 0; // Global verbosity level for logging macros
-    
+
     while ((opt = getopt_long(argc, argv, "r:LsRniuNpvhmPSH", long_options, &option_index)) != -1) {
         switch (opt) {
             case 'r': {
@@ -265,18 +261,18 @@ int parse_args(int argc, char *argv[], options_t *opts) {
                 return -1;
         }
     }
-    
+
     if (optind + 1 >= argc) {
         print_error("At least one SOURCE and DESTINATION required");
         print_usage(argv[0]);
         return -1;
     }
-    
+
     /* Last argument is destination, everything else is sources */
     opts->source_count = argc - optind - 1;
     opts->sources = &argv[optind];
     opts->dest_dir = argv[argc - 1];
-    
+
     /* Validate --only-new requirements and conflicts */
     if (opts->only_new) {
         if (opts->ref_dir_count == 0) {
@@ -313,6 +309,6 @@ int parse_args(int argc, char *argv[], options_t *opts) {
 
     /* Set global verbosity for logging macros */
     g_verbose = opts->verbose;
-    
+
     return 0;
 }
