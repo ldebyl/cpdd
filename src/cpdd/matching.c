@@ -354,8 +354,11 @@ file_info_t *find_matching_file(ref_files_t *ref_files, const char *src_file, co
 
     file_info_t *match = NULL;
 
-    stats->total_source_files++; /* TODO: This shouldn't be here!*/ 
-    
+    /* Skip files below minimum match size */
+    if (st.st_size < opts->min_size) {
+        return NULL;
+    }
+
     /* Find first file with matching size */
     int first_match = find_first_size_match(ref_files, st.st_size);
     if (first_match == -1) {

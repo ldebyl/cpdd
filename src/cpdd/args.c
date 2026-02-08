@@ -83,6 +83,7 @@ void print_usage(const char *program_name) {
     printf("                           SIZE can be bytes or with suffix K, M, G (e.g., 64K, 1M)\n");
     printf("  -m, --match-name       Match on filename in addition to size\n");
     printf("  --no-verify            Skip content comparison (requires --match-name)\n");
+    printf("  --min-size SIZE        Minimum file size for duplicate matching (default: 1)\n");
     printf("  --no-dereference       Don't follow symbolic links\n");
     printf("  --skip-symlinks        Skip symbolic links entirely\n");
     printf("  -h, --human-readable   Show file sizes in human readable format\n");
@@ -118,6 +119,7 @@ int parse_args(int argc, char *argv[], options_t *opts) {
         {"no-verify",     no_argument,       0, 'V'},
         {"no-dereference", no_argument,      0, 'd'},
         {"skip-symlinks", no_argument,       0, 'k'},
+        {"min-size",      required_argument, 0, 'M'},
         {"human-readable", no_argument,      0, 'h'},
         {"verbose",       no_argument,       0, 'v'},
         {"help",          no_argument,       0, 'H'},
@@ -144,6 +146,7 @@ int parse_args(int argc, char *argv[], options_t *opts) {
     opts->no_dereference = 0;
     opts->skip_symlinks = 0;
     opts->block_size = 0;  /* 0 = auto-detect */
+    opts->min_size = 1;    /* Default: skip empty files */
     opts->preserve.mode = 0;
     opts->preserve.ownership = 0;
     opts->preserve.timestamps = 0;
@@ -245,6 +248,13 @@ int parse_args(int argc, char *argv[], options_t *opts) {
                 break;
             case 'k':
                 opts->skip_symlinks = 1;
+                break;
+            case 'M':
+                opts->min_size = (off_t)atoll(optarg);
+                if (opts->min_size < 0) {
+                    print_error("Invalid minimum size '%s'", optarg);
+                    return -1;
+                }
                 break;
             case 'h':
                 opts->human_readable = 1;

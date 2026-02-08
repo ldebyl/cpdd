@@ -579,6 +579,9 @@ int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
         return 0;
     }
 
+    /* Count source files processed for statistics */
+    stats->total_source_files++;
+
     /* Find matching reference file if available */
     matching_file = find_matching_file(ref_files, src, opts, stats);
     if (opts->verbose >= 3 && matching_file) {

@@ -6,7 +6,7 @@ cpdd \- copy files with content-based deduplication
 [\fIOPTIONS\fR] \fISOURCE\fR... \fIDESTINATION\fR
 .SH DESCRIPTION
 .B cpdd
-is a file copy utility that provides content-based deduplication by linking to identical files in a reference directory. It performs efficient three-stage matching: file size comparison, MD5 checksum verification, and byte-by-byte content comparison.
+is a file copy utility that provides content-based deduplication by linking to identical files in a reference directory. It performs efficient multi-stage matching: file size comparison, optional filename matching, block-based hash rejection, and byte-by-byte content verification.
 
 When a reference directory is specified, files with identical content are linked (hard or symbolic) rather than copied, saving disk space and preserving storage efficiency.
 .SH OPTIONS
@@ -75,6 +75,9 @@ Do not follow symbolic links. When this option is specified, symbolic links are 
 .TP
 .BR \-\-skip-symlinks
 Skip symbolic links entirely. Symbolic links are neither copied nor dereferenced - they are simply ignored. Useful for copying only regular files or when copying to filesystems that don't support symbolic links. Mutually exclusive with \fB\-\-no-dereference\fR.
+.TP
+.BR \-\-min-size " " \fISIZE\fR
+Minimum file size in bytes for duplicate matching. Files smaller than \fISIZE\fR are always copied normally without checking for duplicates. Default: 1 (skip empty files).
 .TP
 .BR \-h ", " \-\-human-readable
 Show file sizes in human-readable format (K, M, G) in statistics and verbose output.

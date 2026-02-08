@@ -11,9 +11,9 @@ Thumbs.db
 obj/
 *.o
 
-# Build targets
-cpdd
-syndir
+# Build targets (root-level binaries only)
+/cpdd
+/syndir
 
 # Editor files
 *~

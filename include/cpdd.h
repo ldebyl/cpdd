@@ -126,6 +126,7 @@ typedef struct {
     int no_dereference;     /* Don't follow symlinks (copy them as-is) */
     int skip_symlinks;      /* Skip symlinks entirely */
     size_t block_size;      /* I/O block size (0 = auto-detect) */
+    off_t min_size;         /* Minimum file size for matching (0 = no minimum) */
     preserve_t preserve;    /* Attributes to preserve */
 } options_t;
 
