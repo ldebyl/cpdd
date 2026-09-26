@@ -226,11 +226,15 @@ int should_overwrite(const char *src_path, const char *dest_path, const options_
     return 1; /* Default: overwrite */
 }
 
-/* Copy file attributes (mode, ownership, timestamps) from src to dest */
+/* Copy file attributes (mode, ownership, timestamps) from src to dest.
+ * Each attribute is attempted independently; a failure on one does not
+ * prevent the others from being applied. Returns 0 if all requested
+ * attributes were applied, -1 if any failed. */
 int preserve_file_attributes(const char *src, const char *dest, const preserve_t *preserve)
 {
     struct stat src_st;
     struct utimbuf times;
+    int rc = 0;
 
     if (stat(src, &src_st) != 0) {
         return -1;
@@ -238,13 +242,15 @@ int preserve_file_attributes(const char *src, const char *dest, const preserve_t
 
     if (preserve->mode) {
         if (chmod(dest, src_st.st_mode) != 0) {
-            return -1;
+            print_warning("chmod %s: %s", dest, strerror(errno));
+            rc = -1;
         }
     }
 
     if (preserve->ownership) {
         if (chown(dest, src_st.st_uid, src_st.st_gid) != 0) {
-            return -1;
+            print_warning("chown %s: %s", dest, strerror(errno));
+            rc = -1;
         }
     }
 
@@ -252,11 +258,12 @@ int preserve_file_attributes(const char *src, const char *dest, const preserve_t
         times.actime = src_st.st_atime;
         times.modtime = src_st.st_mtime;
         if (utime(dest, &times) != 0) {
-            return -1;
+            print_warning("utime %s: %s", dest, strerror(errno));
+            rc = -1;
         }
     }
 
-    return 0;
+    return rc;
 }
 
 /* Parse size string with K/M/G suffixes, e.g. "64K" or "1M" */
@@ -509,6 +516,7 @@ int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
                             color_yellow(), color_reset(), src);
             }
             stats->files_skipped++;
+            processed_log_write(opts->log_fp, src, lstat_st.st_size, lstat_st.st_mtime, "SKIP-SYMLINK");
             return 0;
         }
     }
@@ -536,6 +544,17 @@ int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
             print_error("Cannot stat %s: %s", src, strerror(errno));
             return -1;
         }
+    }
+
+    /* Placed before reference matching so we bypass the comparison path. */
+    if (opts->skip_set &&
+        skip_set_contains(opts->skip_set, src, src_st.st_size, src_st.st_mtime)) {
+        if (opts->verbose >= 1) {
+            print_verbose("%s[SKIP-LOG]%s '%s'",
+                        color_yellow(), color_reset(), src);
+        }
+        stats->files_skipped++;
+        return 0;
     }
 
     /* If it's a symlink and we're not dereferencing, copy the symlink itself */
@@ -576,6 +595,7 @@ int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
                         color_yellow(), color_reset(), src);
         }
         stats->files_skipped++;
+        processed_log_write(opts->log_fp, src, src_st.st_size, src_st.st_mtime, "SKIP-EXIST");
         return 0;
     }
 
@@ -591,10 +611,11 @@ int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
     /* If --only-new is set and file exists in reference, skip it */
     if (opts->only_new && matching_file) {
         if (opts->verbose >= 1) {
-            print_verbose("%s[SKIP]%s '%s'",
-                        color_yellow(), color_reset(), src);
+            print_verbose("%s[SKIP]%s '%s' (matches '%s')",
+                        color_yellow(), color_reset(), src, matching_file->path);
         }
         stats->files_skipped++;
+        processed_log_write(opts->log_fp, src, src_st.st_size, src_st.st_mtime, "SKIP-DUP");
         return 0;
     }
 
@@ -635,6 +656,7 @@ int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
                                         src, dest, matching_file->path);
                         }
                     }
+                    processed_log_write(opts->log_fp, src, src_st.st_size, src_st.st_mtime, "LINK-HARD");
                     return 0;
                 } else {
                     print_error("Failed to create hard link for %s -> %s: %s", matching_file->path, dest, strerror(errno));
@@ -656,6 +678,7 @@ int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
                                         src, dest, matching_file->path);
                         }
                     }
+                    processed_log_write(opts->log_fp, src, src_st.st_size, src_st.st_mtime, "LINK-SOFT");
                     return 0;
                 } else {
                     if (opts->verbose >= 3) {
@@ -663,6 +686,48 @@ int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
                     }
                 }
             }
+        }
+    }
+
+    /* If no reference match, optionally link the destination back to the source
+     * instead of copying. Useful for merging directory trees on the same
+     * filesystem without duplicating data. */
+    if (opts->source_link_type != LINK_NONE) {
+        file_unlink(dest, opts);
+
+        if (opts->source_link_type == LINK_HARD) {
+            if (file_link(src, dest, opts) == 0) {
+                stats->files_hard_linked++;
+                stats->bytes_hard_linked += src_st.st_size;
+                if (opts->verbose >= 1) {
+                    print_verbose("%s%s[LINK-SRC]%s '%s' -> '%s'",
+                                opts->dry_run ? color_dim() : "",
+                                opts->dry_run ? "[DRY RUN] " : "",
+                                color_blue(), src, dest);
+                    (void)color_reset();
+                }
+                processed_log_write(opts->log_fp, src, src_st.st_size, src_st.st_mtime, "LINK-SRC-HARD");
+                return 0;
+            }
+            print_warning("Hard link to source failed for %s -> %s: %s; falling back to copy",
+                          src, dest, strerror(errno));
+            /* fall through to regular copy */
+        } else if (opts->source_link_type == LINK_SOFT) {
+            if (file_symlink(src, dest, opts) == 0) {
+                stats->files_soft_linked++;
+                stats->bytes_soft_linked += src_st.st_size;
+                if (opts->verbose >= 1) {
+                    print_verbose("%s%s[LINK-SRC]%s '%s' -> '%s'",
+                                opts->dry_run ? color_dim() : "",
+                                opts->dry_run ? "[DRY RUN] " : "",
+                                color_blue(), src, dest);
+                }
+                processed_log_write(opts->log_fp, src, src_st.st_size, src_st.st_mtime, "LINK-SRC-SOFT");
+                return 0;
+            }
+            print_warning("Symlink to source failed for %s -> %s: %s; falling back to copy",
+                          src, dest, strerror(errno));
+            /* fall through to regular copy */
         }
     }
 
@@ -697,7 +762,104 @@ int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
         }
     }
 
+    processed_log_write(opts->log_fp, src, src_st.st_size, src_st.st_mtime, "COPY");
     return 0;
+}
+
+/* qsort/bsearch comparator for an array of C strings */
+static int compare_strs(const void *a, const void *b)
+{
+    return strcmp(*(const char *const *)a, *(const char *const *)b);
+}
+
+/* Free a sorted name list built by build_dest_name_set */
+static void free_name_set(char **names, int count)
+{
+    if (!names) return;
+    for (int i = 0; i < count; i++) {
+        free(names[i]);
+    }
+    free(names);
+}
+
+/* Build a sorted array of entry names from dest_path. Returns NULL on
+ * failure or empty directory. Sets *out_count to the number of entries.
+ * Used to batch a single readdir on the destination instead of stat-ing
+ * each file individually -- a big win over high-latency filesystems
+ * such as SMB when --no-clobber is set. */
+static char **build_dest_name_set(const char *dest_path, int *out_count)
+{
+    DIR *d = opendir(dest_path);
+    if (!d) {
+        *out_count = 0;
+        return NULL;
+    }
+
+    int capacity = 64;
+    int count = 0;
+    char **names = malloc(capacity * sizeof(char *));
+    if (!names) {
+        closedir(d);
+        *out_count = 0;
+        return NULL;
+    }
+
+    struct dirent *e;
+    while ((e = readdir(d)) != NULL) {
+        if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0) {
+            continue;
+        }
+        if (count == capacity) {
+            capacity *= 2;
+            char **grown = realloc(names, capacity * sizeof(char *));
+            if (!grown) {
+                free_name_set(names, count);
+                closedir(d);
+                *out_count = 0;
+                return NULL;
+            }
+            names = grown;
+        }
+        names[count] = strdup(e->d_name);
+        if (!names[count]) {
+            free_name_set(names, count);
+            closedir(d);
+            *out_count = 0;
+            return NULL;
+        }
+        count++;
+    }
+    closedir(d);
+
+    qsort(names, count, sizeof(char *), compare_strs);
+    *out_count = count;
+    return names;
+}
+
+/* If src_name exists in the cached destination listing, emit a [SKIP] log,
+ * bump files_skipped, and return 1 so the caller can `continue`. Returns 0
+ * otherwise (or when no cache is available). Caller is responsible for not
+ * invoking this on entries that should recurse (i.e. directories). */
+static int try_skip_existing(char **dest_names, int dest_name_count,
+                             const char *src_full, const char *src_name,
+                             const options_t *opts, stats_t *stats)
+{
+    if (!dest_names) {
+        return 0;
+    }
+    if (bsearch(&src_name, dest_names, dest_name_count,
+                sizeof(char *), compare_strs) == NULL) {
+        return 0;
+    }
+    if (opts->verbose >= 1) {
+        print_verbose("%s[SKIP]%s '%s'",
+                    color_yellow(), color_reset(), src_full);
+    }
+    stats->files_skipped++;
+    /* Intentionally not logged: the fast path skipped this entry without
+     * statting it, and statting now just to log would defeat the optimization.
+     * A subsequent run will re-detect the destination collision the same way. */
+    return 1;
 }
 
 /* Recursively copy directory contents, linking duplicates when possible */
@@ -709,6 +871,8 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
     struct stat st;
     char src_full[MAX_PATH];
     char dest_full[MAX_PATH];
+    char **dest_names = NULL;
+    int dest_name_count = 0;
 
     src_dir = opendir(src_path);
     if (!src_dir) {
@@ -728,6 +892,12 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
         }
     }
 
+    /* For --no-clobber, list the destination directory once and use it as
+     * an in-memory existence set so we can short-circuit per-file stat()s. */
+    if (opts->no_clobber) {
+        dest_names = build_dest_name_set(dest_path, &dest_name_count);
+    }
+
     while ((entry = readdir(src_dir)) != NULL) {
         if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
             continue;
@@ -735,6 +905,19 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
 
         snprintf(src_full, sizeof(src_full), "%s/%s", src_path, entry->d_name);
         snprintf(dest_full, sizeof(dest_full), "%s/%s", dest_path, entry->d_name);
+
+#ifdef CPDD_HAVE_D_TYPE
+        /* Fast skip path for --no-clobber: when readdir gives us the entry
+         * type directly we can skip without statting the source at all.
+         * Only safe for non-directory entries -- a colliding directory
+         * still has to recurse normally so missing children get copied. */
+        if (dest_names && entry->d_type != DT_DIR && entry->d_type != DT_UNKNOWN) {
+            if (try_skip_existing(dest_names, dest_name_count, src_full,
+                                   entry->d_name, opts, stats)) {
+                continue;
+            }
+        }
+#endif
 
         /* Check if we should skip symlinks entirely */
         if (opts->skip_symlinks) {
@@ -774,6 +957,9 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
 
         /* Handle symlinks */
         if (opts->no_dereference && S_ISLNK(st.st_mode)) {
+            if (try_skip_existing(dest_names, dest_name_count, src_full, entry->d_name, opts, stats)) {
+                continue;
+            }
             if (copy_or_link_file(src_full, dest_full, ref_files, opts, stats) != 0) {
                 continue;
             }
@@ -789,11 +975,14 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
         if (S_ISDIR(st.st_mode)) {
             if (opts->recursive) {
                 if (copy_directory_recursive(src_full, dest_full, ref_files, opts, stats) != 0) {
-                    closedir(src_dir);
-                    return -1;
+                    stats->files_failed++;
+                    continue;
                 }
             }
         } else if (S_ISREG(st.st_mode)) {
+            if (try_skip_existing(dest_names, dest_name_count, src_full, entry->d_name, opts, stats)) {
+                continue;
+            }
             if (copy_or_link_file(src_full, dest_full, ref_files, opts, stats) != 0) {
                 continue;
             }
@@ -807,6 +996,7 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
     }
 
     closedir(src_dir);
+    free_name_set(dest_names, dest_name_count);
     return 0;
 }
 

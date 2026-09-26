@@ -79,6 +79,9 @@ Skip symbolic links entirely. Symbolic links are neither copied nor dereferenced
 .BR \-\-min-size " " \fISIZE\fR
 Minimum file size in bytes for duplicate matching. Files smaller than \fISIZE\fR are always copied normally without checking for duplicates. Default: 1 (skip empty files).
 .TP
+.BR \-\-log-processed " " \fIFILE\fR
+Resume-aware processed-files log. On startup, if \fIFILE\fR exists it is loaded as a skip-set: any source whose path, size and mtime all match a recorded entry is skipped before reference matching, so a re-run with \fB\-\-only-new\fR does not need to re-hash references or re-compare every source. Then \fIFILE\fR is opened for append and a tab-separated record (\fIpath\fR, \fIsize\fR, \fImtime\fR, \fIdecision\fR) is written for every source that reaches a final disposition (copied, linked, or skipped). Failures are never logged, so they get retried on the next run. The log is line-buffered and flushed after every record so an interrupted run leaves a consistent file on disk; pointing the next invocation at the same \fIFILE\fR resumes where it left off. A source whose size or mtime has changed since being logged is treated as new and processed normally. Paths containing backslash, tab or newline are escaped as \fB\\\\\\\\\fR, \fB\\\\t\fR and \fB\\\\n\fR respectively. Decisions emitted: \fBCOPY\fR, \fBLINK-HARD\fR, \fBLINK-SOFT\fR, \fBLINK-SRC-HARD\fR, \fBLINK-SRC-SOFT\fR, \fBSKIP-DUP\fR (matched in reference under \fB\-\-only-new\fR), \fBSKIP-EXIST\fR (destination already present under \fB\-\-no-clobber\fR or \fB\-\-update\fR), \fBSKIP-SYMLINK\fR.
+.TP
 .BR \-h ", " \-\-human-readable
 Show file sizes in human-readable format (K, M, G) in statistics and verbose output.
 .TP
@@ -117,6 +120,13 @@ cpdd \-i \-p \-R src/ dest/
 .TP
 .B Copy only new files not in reference:
 cpdd \-r /reference/ \-N \-R source/ /dest/
+.TP
+.B Resumable copy across runs:
+cpdd \-R \-\-log-processed run.log src/ /dest/
+.br
+cpdd \-R \-\-log-processed run.log src/ /dest/
+.br
+The second invocation re-uses the same log: it reads any existing entries as a skip-set and then appends new ones. This works even for files dropped by \fB\-\-only-new\fR that leave no trace in \fI/dest/\fR.
 .SH FILE MATCHING ALGORITHM
 .B cpdd
 uses a multi-stage matching process for efficient deduplication:

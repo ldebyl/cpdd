@@ -42,6 +42,27 @@
 #define MD5_DIGEST_LENGTH 16
 #define BUFFER_SIZE 8192
 
+/* readdir d_type support. POSIX only requires d_ino and d_name in struct
+ * dirent, so d_type is an extension. It exists on Linux, *BSD, macOS and
+ * Solaris 11+; older Solaris and other strict POSIX systems lack it. When
+ * present it lets us avoid a stat() per directory entry. The DT_* constants
+ * may be hidden by strict feature-test macros even where d_type is present,
+ * so define them locally using the BSD-derived values used everywhere. */
+#if defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__) || \
+    defined(__OpenBSD__) || defined(__NetBSD__) || defined(__DragonFly__)
+#define CPDD_HAVE_D_TYPE 1
+#ifndef DT_UNKNOWN
+#define DT_UNKNOWN 0
+#define DT_FIFO    1
+#define DT_CHR     2
+#define DT_DIR     4
+#define DT_BLK     6
+#define DT_REG     8
+#define DT_LNK    10
+#define DT_SOCK   12
+#endif
+#endif
+
 /* Block cache configuration */
 #define BLOCK_HASH_SIZE 4         /* Size of hash per block (4 or 8 bytes) */
 #define BLOCK_CACHE_GROW_SIZE 16  /* Number of blocks to allocate at once */
@@ -111,7 +132,8 @@ typedef struct {
     char *dest_dir;         /* Destination directory */
     char **ref_dirs;        /* Reference directories for deduplication */
     int ref_dir_count;      /* Number of reference directories */
-    link_type_t link_type;  /* Linking strategy */
+    link_type_t link_type;  /* Linking strategy for reference matches */
+    link_type_t source_link_type; /* Linking strategy for unmatched files (link to source instead of copying) */
     int verbose;            /* Verbose output */
     int recursive;          /* Recursive directory traversal */
     int no_clobber;         /* Don't overwrite existing files */
@@ -128,6 +150,9 @@ typedef struct {
     size_t block_size;      /* I/O block size (0 = auto-detect) */
     off_t min_size;         /* Minimum file size for matching (0 = no minimum) */
     preserve_t preserve;    /* Attributes to preserve */
+    char *log_file;         /* Processed-files log path (NULL = disabled) */
+    FILE *log_fp;           /* Append handle for log_file */
+    struct skip_set *skip_set; /* Loaded from log_file if it existed */
 } options_t;
 
 /* Block-based MD5 cache for incremental comparison */
@@ -217,5 +242,19 @@ const char *color_bold(void);
 void register_incomplete_file(const char *path);
 void unregister_incomplete_file(void);
 void cleanup_incomplete_file(void);
+
+/* Processed-log format: TAB-separated <escaped-path>\t<size>\t<mtime>\t<decision>\n
+ * per record. Path is escaped (\, TAB, NL -> \\, \t, \n) to keep the TSV intact. */
+typedef struct skip_set skip_set_t;
+
+int processed_log_open(const char *path, FILE **out_fp);
+void processed_log_close(FILE *fp);
+void processed_log_write(FILE *fp, const char *src_path,
+                          off_t size, time_t mtime, const char *decision);
+
+skip_set_t *skip_set_load(const char *path);
+int skip_set_contains(const skip_set_t *set, const char *path,
+                       off_t size, time_t mtime);
+void skip_set_free(skip_set_t *set);
 
 #endif

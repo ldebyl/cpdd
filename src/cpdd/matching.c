@@ -216,9 +216,7 @@ static void collect_file_info(const char *ref_dir, const options_t *opts, int *c
     }
     
     closedir(dir);
-    if (opts->verbose == 0) {
-        print_status_update("Scanning reference files: %d found", *count);
-    }
+    print_status_update("Scanning reference files: %d found", *count);
 }
 
 /* qsort comparator: order files by size ascending */
@@ -413,6 +411,7 @@ file_info_t *find_matching_file(ref_files_t *ref_files, const char *src_file, co
     }
 
     update_hash_stats(stats, &src_info);
+    free_block_hashes(&src_info.block_hashes);
     return match;
 }
 

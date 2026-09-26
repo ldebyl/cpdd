@@ -60,25 +60,37 @@ int main(int argc, char *argv[]) {
         }
         return 1;  /* Parse error */
     }
-    
-    /* Execute the main copy operation */
-    if (copy_directory(&opts, &stats) != 0) {
-        if (opts.show_stats && opts.verbose == 0) {
-            clear_status_line();  /* Clean up status display */
+
+    if (opts.log_file) {
+        opts.skip_set = skip_set_load(opts.log_file);
+        if (processed_log_open(opts.log_file, &opts.log_fp) != 0) {
+            skip_set_free(opts.skip_set);
+            return 1;
         }
-        print_error("Copy operation failed");
-        return 1;
     }
-    
-    /* Clean up status line if stats will be displayed */
+
+    int rc = copy_directory(&opts, &stats);
+
     if (opts.show_stats && opts.verbose == 0) {
         clear_status_line();
     }
-    
-    /* Display final operation statistics */
     if (opts.show_stats) {
         print_statistics(&stats, opts.human_readable);
     }
-    
-    return 0;
+
+    /* Summary of failures even without --stats so partial-failure runs are
+     * visible. Per-file errors are already printed inline above. */
+    if (stats.files_failed > 0) {
+        int succeeded = stats.files_copied + stats.files_hard_linked
+                      + stats.files_soft_linked + stats.files_skipped;
+        print_error("%d file(s) failed, %d succeeded (see errors above)",
+                    stats.files_failed, succeeded);
+    } else if (rc != 0) {
+        print_error("Copy operation failed");
+    }
+
+    processed_log_close(opts.log_fp);
+    skip_set_free(opts.skip_set);
+
+    return (rc != 0 || stats.files_failed > 0) ? 1 : 0;
 }

@@ -14,6 +14,7 @@ obj/
 # Build targets (root-level binaries only)
 /cpdd
 /syndir
+/cpdd.armv7
 
 # Editor files
 *~

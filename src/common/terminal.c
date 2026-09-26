@@ -124,12 +124,15 @@ void print_status_update(const char *format, ...)
     va_start(args, format);
 
     if (terminal_supports_clear_eol()) {
-        /* Use reverse video for status line to make it stand out */
-        fprintf(stderr, "\r\033[7m");  /* \033[7m = reverse video */
+        /* Bold cyan for status line: stands out without relying on reverse
+         * video, which renders as a blank bar on terminals where both fg
+         * and bg are at default. */
+        fprintf(stderr, "\r\033[1;36m");
         vfprintf(stderr, format, args);
-        fprintf(stderr, "\033[0m");    /* \033[0m = reset attributes */
-        fprintf(stderr, "\033[K");     /* Clear to end of line */
+        fprintf(stderr, "\033[0m");
+        fprintf(stderr, "\033[K");
         fflush(stderr);
+        stats_line_active = 1;
     } else {
         vfprintf(stderr, format, args);
         fprintf(stderr, "\n");
@@ -191,10 +194,10 @@ void print_stats_at_bottom(const char *format, ...)
     }
 
     /* Update stats on current line on stderr */
-    fprintf(stderr, "\r\033[7m[STATS] "); /* Reverse video + label */
+    fprintf(stderr, "\r\033[1;36m[STATS] ");
     vfprintf(stderr, format, args);
-    fprintf(stderr, "\033[0m");           /* Reset attributes */
-    fprintf(stderr, "\033[K");            /* Clear to end of line */
+    fprintf(stderr, "\033[0m");
+    fprintf(stderr, "\033[K");
     fflush(stderr);
     stats_line_active = 1;
 

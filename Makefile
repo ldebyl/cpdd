@@ -9,8 +9,8 @@ COMPILE = mkdir -p obj && $(CC) $(CFLAGS) -c
 
 all: cpdd syndir docs
 
-cpdd: obj/cpdd/cpdd.o obj/cpdd/copy.o obj/cpdd/matching.o obj/cpdd/args.o obj/common/terminal.o obj/common/md5.o
-	$(CC) $(CFLAGS) -o cpdd obj/cpdd/cpdd.o obj/cpdd/copy.o obj/cpdd/matching.o obj/cpdd/args.o obj/common/terminal.o obj/common/md5.o
+cpdd: obj/cpdd/cpdd.o obj/cpdd/copy.o obj/cpdd/matching.o obj/cpdd/args.o obj/cpdd/processed_log.o obj/common/terminal.o obj/common/md5.o
+	$(CC) $(CFLAGS) -o cpdd obj/cpdd/cpdd.o obj/cpdd/copy.o obj/cpdd/matching.o obj/cpdd/args.o obj/cpdd/processed_log.o obj/common/terminal.o obj/common/md5.o
 
 syndir: obj/syndir/syndir.o obj/syndir/core.o obj/syndir/args.o obj/common/terminal.o
 	$(CC) $(CFLAGS) -o syndir obj/syndir/syndir.o obj/syndir/core.o obj/syndir/args.o obj/common/terminal.o -lm
@@ -37,6 +37,8 @@ obj/cpdd/matching.o: src/cpdd/matching.c
 	mkdir -p obj/cpdd && $(CC) $(CFLAGS) -c src/cpdd/matching.c -o obj/cpdd/matching.o
 obj/cpdd/args.o: src/cpdd/args.c
 	mkdir -p obj/cpdd && $(CC) $(CFLAGS) -c src/cpdd/args.c -o obj/cpdd/args.o
+obj/cpdd/processed_log.o: src/cpdd/processed_log.c
+	mkdir -p obj/cpdd && $(CC) $(CFLAGS) -c src/cpdd/processed_log.c -o obj/cpdd/processed_log.o
 obj/common/terminal.o: src/common/terminal.c
 	mkdir -p obj/common && $(CC) $(CFLAGS) -c src/common/terminal.c -o obj/common/terminal.o
 obj/common/md5.o: src/common/md5.c

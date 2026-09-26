@@ -68,6 +68,8 @@ void print_usage(const char *program_name) {
     printf("  -r, --reference DIR    Reference directory for content-based linking (can be used multiple times)\n");
     printf("  -L, --hard-link        Create hard links to reference files when content matches (default with -r)\n");
     printf("  -s, --symbolic-link    Create symbolic links to reference files when content matches\n");
+    printf("      --hard-link-source     Hard link unmatched files back to the source instead of copying\n");
+    printf("      --symbolic-link-source Symlink unmatched files back to the source instead of copying\n");
     printf("  -R, --recursive        Copy directories recursively\n");
     printf("  -n, --no-clobber       Never overwrite existing files\n");
     printf("  -i, --interactive      Prompt before overwrite\n");
@@ -86,6 +88,9 @@ void print_usage(const char *program_name) {
     printf("  --min-size SIZE        Minimum file size for duplicate matching (default: 1)\n");
     printf("  --no-dereference       Don't follow symbolic links\n");
     printf("  --skip-symlinks        Skip symbolic links entirely\n");
+    printf("  --log-processed FILE   Resume-aware log: read FILE if it exists (skip sources whose path+size+mtime\n");
+    printf("                           still match), then append a record for each newly processed source.\n");
+    printf("                           Line-buffered and flushed per record so it survives interrupts.\n");
     printf("  -h, --human-readable   Show file sizes in human readable format\n");
     printf("  -v, --verbose          Verbose output (use multiple times for more verbosity: -vv, -vvv)\n");
     printf("  --help                 Show this help message\n");
@@ -119,7 +124,10 @@ int parse_args(int argc, char *argv[], options_t *opts) {
         {"no-verify",     no_argument,       0, 'V'},
         {"no-dereference", no_argument,      0, 'd'},
         {"skip-symlinks", no_argument,       0, 'k'},
+        {"hard-link-source",     no_argument, 0, 1001},
+        {"symbolic-link-source", no_argument, 0, 1002},
         {"min-size",      required_argument, 0, 'M'},
+        {"log-processed", required_argument, 0, 1003},
         {"human-readable", no_argument,      0, 'h'},
         {"verbose",       no_argument,       0, 'v'},
         {"help",          no_argument,       0, 'H'},
@@ -132,6 +140,7 @@ int parse_args(int argc, char *argv[], options_t *opts) {
     opts->ref_dirs = NULL;
     opts->ref_dir_count = 0;
     opts->link_type = LINK_NONE;
+    opts->source_link_type = LINK_NONE;
     opts->verbose = 0;
     opts->recursive = 0;
     opts->no_clobber = 0;
@@ -151,6 +160,9 @@ int parse_args(int argc, char *argv[], options_t *opts) {
     opts->preserve.ownership = 0;
     opts->preserve.timestamps = 0;
     opts->preserve.all = 0;
+    opts->log_file = NULL;
+    opts->log_fp = NULL;
+    opts->skip_set = NULL;
     g_verbose = 0; // Global verbosity level for logging macros
 
     while ((opt = getopt_long(argc, argv, "r:LsRniuNpvhmPSH", long_options, &option_index)) != -1) {
@@ -249,6 +261,23 @@ int parse_args(int argc, char *argv[], options_t *opts) {
             case 'k':
                 opts->skip_symlinks = 1;
                 break;
+            case 1001:
+                if (opts->source_link_type != LINK_NONE) {
+                    print_error("Cannot specify both --hard-link-source and --symbolic-link-source");
+                    return -1;
+                }
+                opts->source_link_type = LINK_HARD;
+                break;
+            case 1002:
+                if (opts->source_link_type != LINK_NONE) {
+                    print_error("Cannot specify both --hard-link-source and --symbolic-link-source");
+                    return -1;
+                }
+                opts->source_link_type = LINK_SOFT;
+                break;
+            case 1003:
+                opts->log_file = optarg;
+                break;
             case 'M':
                 opts->min_size = (off_t)atoll(optarg);
                 if (opts->min_size < 0) {
@@ -283,14 +312,10 @@ int parse_args(int argc, char *argv[], options_t *opts) {
     opts->sources = &argv[optind];
     opts->dest_dir = argv[argc - 1];
 
-    /* Validate --only-new requirements and conflicts */
+    /* Validate --only-new requirements */
     if (opts->only_new) {
         if (opts->ref_dir_count == 0) {
             print_error("--only-new requires at least one reference directory (-r)");
-            return -1;
-        }
-        if (opts->link_type != LINK_NONE) {
-            print_error("--only-new cannot be used with --hard-link or --symbolic-link");
             return -1;
         }
     }

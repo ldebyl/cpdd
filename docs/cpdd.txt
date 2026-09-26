@@ -9,21 +9,22 @@
 1mDESCRIPTION0m
        1mcpdd  22mis  a file copy utility that provides content-based deduplication
        by linking to identical files in a reference directory. It performs ef-
-       ficient three-stage matching: file size comparison, MD5 checksum  veri-
-       fication, and byte-by-byte content comparison.
+       ficient multi-stage matching: file size comparison,  optional  filename
+       matching,  block-based hash rejection, and byte-by-byte content verifi-
+       cation.
 
-       When  a  reference directory is specified, files with identical content
+       When a reference directory is specified, files with  identical  content
        are linked (hard or symbolic) rather than copied, saving disk space and
        preserving storage efficiency.
 
 1mOPTIONS0m
        1m-r22m, 1m--reference 4m22mDIR0m
-              Use 4mDIR24m as reference directory for content-based linking.  Files
-              in  4mSOURCE24m  that  match content in 4mDIR24m will be linked instead of
+              Use  4mDIR24m as reference directory for content-based linking. Files
+              in 4mSOURCE24m that match content in 4mDIR24m will be  linked  instead  of
               copied. Defaults to hard links.
 
        1m-L22m, 1m--hard-link0m
-              Create hard links to reference files when content matches.  This
+              Create  hard links to reference files when content matches. This
               is the default when a reference directory is specified.
 
        1m-s22m, 1m--symbolic-link0m
@@ -47,14 +48,14 @@
        1m-N22m, 1m--only-new0m
               Only copy files that don't exist in reference directories. Files
               with identical content in the reference will be skipped entirely
-              (not  copied  or linked). Requires at least one reference direc-
+              (not copied or linked). Requires at least one  reference  direc-
               tory (1m-r22m).
 
-       1m-p     22mPreserve file attributes (equivalent  to  1m--preserve=mode,owner-0m
+       1m-p     22mPreserve  file  attributes (equivalent to 1m--preserve=mode,owner-0m
               1mship,timestamps22m).
 
        1m--preserve22m[=4mATTR_LIST24m]
-              Preserve  specified  file  attributes. If no 4mATTR_LIST24m is given,
+              Preserve specified file attributes. If no  4mATTR_LIST24m  is  given,
               preserves mode, ownership, and timestamps. Available attributes:
 
               o   1mmode 22m- file permissions
@@ -70,35 +71,60 @@
               files copied, linked, and skipped.
 
        1m--block-size 4m22mSIZE0m
-              I/O block size for file operations. SIZE  can  be  specified  in
-              bytes  or with suffix K, M, G (e.g., 64K, 1M). Default: auto-de-
+              I/O  block  size  for  file operations. SIZE can be specified in
+              bytes or with suffix K, M, G (e.g., 64K, 1M). Default:  auto-de-
               tect from filesystem.
 
        1m-m22m, 1m--match-name0m
               Match on filename in addition to size. When enabled, only refer-
-              ence files with the same basename as the  source  file  will  be
+              ence  files  with  the  same basename as the source file will be
               considered for matching. Size matching is always performed.
 
        1m--no-verify0m
-              Skip  content comparison and accept matches based solely on size
+              Skip content comparison and accept matches based solely on  size
               and filename. Requires 1m--match-name 22mto be enabled. Use with cau-
               tion as this may create links to files with different content if
               they have the same size and name.
 
        1m--no-dereference0m
-              Do not follow symbolic links. When  this  option  is  specified,
-              symbolic  links are copied as symbolic links rather than copying
+              Do  not  follow  symbolic  links. When this option is specified,
+              symbolic links are copied as symbolic links rather than  copying
               the files they point to. Duplicate detection is skipped for sym-
-              bolic links. Without this option (default), symbolic  links  are
-              dereferenced  and  their  targets are copied. Mutually exclusive
+              bolic  links.  Without this option (default), symbolic links are
+              dereferenced and their targets are  copied.  Mutually  exclusive
               with 1m--skip-symlinks22m.
 
        1m--skip-symlinks0m
-              Skip symbolic links entirely. Symbolic links are neither  copied
-              nor  dereferenced  - they are simply ignored. Useful for copying
-              only regular files or when copying  to  filesystems  that  don't
-              support  symbolic  links.  Mutually exclusive with 1m--no-derefer-0m
+              Skip  symbolic links entirely. Symbolic links are neither copied
+              nor dereferenced - they are simply ignored. Useful  for  copying
+              only  regular  files  or  when copying to filesystems that don't
+              support symbolic links. Mutually  exclusive  with  1m--no-derefer-0m
               1mence22m.
+
+       1m--min-size 4m22mSIZE0m
+              Minimum file size in bytes for duplicate matching. Files smaller
+              than 4mSIZE24m are always copied normally without checking for dupli-
+              cates. Default: 1 (skip empty files).
+
+       1m--log-processed 4m22mFILE0m
+              Resume-aware  processed-files log. On startup, if 4mFILE24m exists it
+              is loaded as a skip-set: any source whose path, size  and  mtime
+              all match a recorded entry is skipped before reference matching,
+              so  a re-run with 1m--only-new 22mdoes not need to re-hash references
+              or re-compare every source. Then 4mFILE24m is opened for append and a
+              tab-separated record (4mpath24m, 4msize24m, 4mmtime24m,  4mdecision24m)  is  written
+              for  every  source  that  reaches  a  final disposition (copied,
+              linked, or skipped). Failures are never logged, so they get  re-
+              tried  on the next run. The log is line-buffered and flushed af-
+              ter every record so an interrupted run leaves a consistent  file
+              on  disk;  pointing the next invocation at the same 4mFILE24m resumes
+              where it left off. A source whose  size  or  mtime  has  changed
+              since  being  logged  is  treated as new and processed normally.
+              Paths containing backslash, tab or newline are escaped as  1m\\\\22m,
+              1m\\t  22mand  1m\\n  22mrespectively. Decisions emitted: 1mCOPY22m, 1mLINK-HARD22m,
+              1mLINK-SOFT22m, 1mLINK-SRC-HARD22m, 1mLINK-SRC-SOFT22m,  1mSKIP-DUP  22m(matched  in
+              reference  under  1m--only-new22m),  1mSKIP-EXIST  22m(destination already
+              present under 1m--no-clobber 22mor 1m--update22m), 1mSKIP-SYMLINK22m.
 
        1m-h22m, 1m--human-readable0m
               Show file sizes in human-readable format (K, M, G) in statistics
@@ -135,23 +161,31 @@
        1mCopy only new files not in reference:0m
               cpdd -r /reference/ -N -R source/ /dest/
 
+       1mResumable copy across runs:0m
+              cpdd -R --log-processed run.log src/ /dest/
+              cpdd -R --log-processed run.log src/ /dest/
+              The  second invocation re-uses the same log: it reads any exist-
+              ing entries as a skip-set and then appends new ones. This  works
+              even  for  files  dropped  by  1m--only-new 22mthat leave no trace in
+              4m/dest/24m.
+
 1mFILE MATCHING ALGORITHM0m
        1mcpdd 22muses a multi-stage matching process for efficient deduplication:
 
-       1.  1mSize  comparison  22m- Files must have identical size to be considered
+       1.  1mSize comparison 22m- Files must have identical size to  be  considered
            for matching.
 
        2.  1mFilename comparison (optional) 22m- When 1m--match-name 22mis enabled, only
            files with matching basenames are considered.
 
-       3.  1mBlock-based hash comparison 22m- Cached block hashes provide fast  re-
+       3.  1mBlock-based  hash comparison 22m- Cached block hashes provide fast re-
            jection of non-matching files.
 
-       4.  1mByte-by-byte  comparison  22m-  Final  verification ensures content is
+       4.  1mByte-by-byte comparison 22m- Final  verification  ensures  content  is
            truly identical before linking (skipped if 1m--no-verify 22mis used).
 
            This approach minimizes expensive I/O operations while guaranteeing
-           correctness. The 1m--no-verify 22moption trades accuracy  for  speed  by
+           correctness.  The  1m--no-verify  22moption trades accuracy for speed by
            skipping the final content verification step.
 
 1mEXIT STATUS0m
@@ -164,19 +198,19 @@
        Hard links can only be created between files on the same filesystem. If
        hard linking fails, 1mcpdd 22mwill fall back to copying the file normally.
 
-       Symbolic  links in reference directories or created with 1m-s 22mcontain the
-       path to the target file and can span filesystems, but may break if  the
+       Symbolic links in reference directories or created with 1m-s 22mcontain  the
+       path  to the target file and can span filesystems, but may break if the
        reference directory is moved or deleted.
 
        When copying symbolic links in the source:
 
-       o   By  default,  symbolic  links are dereferenced (followed) and their
+       o   By default, symbolic links are dereferenced  (followed)  and  their
            target files are copied.
 
-       o   With 1m--no-dereference22m, symbolic links are copied as symbolic  links
+       o   With  1m--no-dereference22m, symbolic links are copied as symbolic links
            (including broken ones).
 
-       o   With  1m--skip-symlinks22m,  symbolic  links  are  skipped entirely (not
+       o   With 1m--skip-symlinks22m, symbolic  links  are  skipped  entirely  (not
            copied at all).
 
        o   Broken symbolic links are skipped with a warning when dereferencing
