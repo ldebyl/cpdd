@@ -128,6 +128,37 @@
               1mSAMEFILE  22m(source and destination are already the same file; see
               1mSAME-FILE PROTECTION22m).
 
+       1m--cache-file 4m22mFILE0m
+              Persist the scanned reference index (paths, sizes and any  block
+              hashes  built  up while matching) to 4mFILE24m, and reuse it on later
+              runs against the same reference directories instead  of  rescan-
+              ning  them.  Each  1m-r  22mdirectory is tracked independently by its
+              canonical (1mrealpath22m(3)) form, so a directory  not  part  of  the
+              current  run  is  simply  not used for matching, and a directory
+              reused from 4mFILE24m is only ever  matched  against  files  actually
+              within it: nothing found via the cache can be outside the set of
+              1m-r 22mdirectories given on this invocation, whatever else 4mFILE24m hap-
+              pens  to  still hold from an earlier run. A directory present in
+              4mFILE24m but not requested this run is dropped  once  4mFILE24m  is  next
+              written,  rather  than kept. 4mFILE24m is written directly (no atomic
+              rename): it is written to periodically during a long run as well
+              as once at the end, and a crash or interruption at  worst  loses
+              the  most  recent partial checkpoint, never something 4mFILE24m can't
+              recover from on its own -- the  cache  is  entirely  regenerable
+              from  the  reference directories, so a missing, truncated or in-
+              compatible 4mFILE24m is silently treated as absent and  rescanned  in
+              full, never an error.
+
+       1m--cache-ttl 4m22mSECONDS0m
+              Treat  a  reference  directory's entry in 1m--cache-file 22mas stale,
+              and rescan it, once more than 4mSECONDS24m have passed since  it  was
+              last scanned (tracked per directory, not by 4mFILE24m's own modifica-
+              tion  time, so directories cached at different times each expire
+              on their own schedule rather than all sharing whichever one  was
+              written most recently). Default: no expiry -- a cached directory
+              is  reused until it is dropped (not requested on some later run)
+              or 4mFILE24m is removed. Requires 1m--cache-file22m.
+
        1m-h22m, 1m--human-readable0m
               Show file sizes in human-readable format (K, M, G) in statistics
               and verbose output.
@@ -171,6 +202,15 @@
               even  for  files  dropped  by  1m--only-new 22mthat leave no trace in
               4m/dest/24m.
 
+       1mRepeated runs against the same large reference set:0m
+              cpdd -R -r /reference/ --cache-file ref.cache --cache-ttl  86400
+              source/ /dest/
+              The  first  run  scans 4m/reference/24m in full and writes 4mref.cache24m.
+              Later runs against the same 1m-r 22mreuse it instead  of  rescanning,
+              as long as it is less than a day (86400s) old; add, drop or swap
+              1m-r  22mdirectories between runs freely; each is tracked, cached and
+              expired independently.
+
 1mFILE MATCHING ALGORITHM0m
        1mcpdd 22muses a multi-stage matching process for efficient deduplication:
 
@@ -181,7 +221,16 @@
            files with matching basenames are considered.
 
        3.  1mBlock-based  hash comparison 22m- Cached block hashes provide fast re-
-           jection of non-matching files.
+           jection of non-matching files. This  only  ever  rejects  a  match,
+           never  confirms  one  (step  4 always still runs before anything is
+           linked), and it only helps once a source file  has  more  than  one
+           same-size  reference  candidate  to  compare  against:  each source
+           file's own hash chain always starts empty, so the very first candi-
+           date it checks is never fast-rejected regardless of  what  1m--cache-0m
+           1mfile  22mcarries  over.  Reference  trees  with  many same-sized files
+           (thumbnails, sequential exports, RAW+JPEG pairs) benefit the  most;
+           a  reference tree with few or no same-size collisions gets no bene-
+           fit from this stage either way, cached or not.
 
        4.  1mByte-by-byte comparison 22m- Final  verification  ensures  content  is
            truly identical before linking (skipped if 1m--no-verify 22mis used).

@@ -91,6 +91,11 @@ void print_usage(const char *program_name) {
     printf("  --log-processed FILE   Resume-aware log: read FILE if it exists (skip sources whose path+size+mtime\n");
     printf("                           still match), then append a record for each newly processed source.\n");
     printf("                           Line-buffered and flushed per record so it survives interrupts.\n");
+    printf("  --cache-file FILE      Persist the scanned reference index to FILE and reuse it on later runs\n");
+    printf("                           against the same reference directories, instead of rescanning them.\n");
+    printf("                           Checkpointed periodically during a long run, not just at the end.\n");
+    printf("  --cache-ttl SECONDS    Treat a directory's cached entry as stale after SECONDS (default: no\n");
+    printf("                           expiry -- reused until removed or replaced). Requires --cache-file.\n");
     printf("  -h, --human-readable   Show file sizes in human readable format\n");
     printf("  -v, --verbose          Verbose output (use multiple times for more verbosity: -vv, -vvv)\n");
     printf("  --help                 Show this help message\n");
@@ -128,6 +133,8 @@ int parse_args(int argc, char *argv[], options_t *opts) {
         {"symbolic-link-source", no_argument, 0, 1002},
         {"min-size",      required_argument, 0, 'M'},
         {"log-processed", required_argument, 0, 1003},
+        {"cache-file",    required_argument, 0, 1004},
+        {"cache-ttl",     required_argument, 0, 1005},
         {"human-readable", no_argument,      0, 'h'},
         {"verbose",       no_argument,       0, 'v'},
         {"help",          no_argument,       0, 'H'},
@@ -163,6 +170,8 @@ int parse_args(int argc, char *argv[], options_t *opts) {
     opts->log_file = NULL;
     opts->log_fp = NULL;
     opts->skip_set = NULL;
+    opts->cache_file = NULL;
+    opts->cache_ttl = 0;    /* 0/negative: no expiry */
     g_verbose = 0; // Global verbosity level for logging macros
 
     while ((opt = getopt_long(argc, argv, "r:LsRniuNpvhmPSH", long_options, &option_index)) != -1) {
@@ -278,6 +287,16 @@ int parse_args(int argc, char *argv[], options_t *opts) {
             case 1003:
                 opts->log_file = optarg;
                 break;
+            case 1004:
+                opts->cache_file = optarg;
+                break;
+            case 1005:
+                opts->cache_ttl = atol(optarg);
+                if (opts->cache_ttl < 0) {
+                    print_error("Invalid cache TTL '%s'", optarg);
+                    return -1;
+                }
+                break;
             case 'M':
                 opts->min_size = (off_t)atoll(optarg);
                 if (opts->min_size < 0) {
@@ -323,6 +342,16 @@ int parse_args(int argc, char *argv[], options_t *opts) {
     /* Validate --no-verify requirements */
     if (opts->no_verify && !opts->match_name) {
         print_error("--no-verify requires --match-name");
+        return -1;
+    }
+
+    /* Validate --cache-ttl requirements */
+    if (opts->cache_ttl > 0 && !opts->cache_file) {
+        print_error("--cache-ttl requires --cache-file");
+        return -1;
+    }
+    if (opts->cache_file && opts->ref_dir_count == 0) {
+        print_error("--cache-file requires at least one reference directory (-r)");
         return -1;
     }
 

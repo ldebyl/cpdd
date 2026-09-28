@@ -1017,6 +1017,7 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
                 format_stats_line(stats, opts->human_readable, stats_buffer, sizeof(stats_buffer));
                 print_status_update("%s", stats_buffer);
             }
+            ref_cache_checkpoint(ref_files, opts);
             continue;
         }
 
@@ -1040,6 +1041,7 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
                 format_stats_line(stats, opts->human_readable, stats_buffer, sizeof(stats_buffer));
                 print_status_update("%s", stats_buffer);
             }
+            ref_cache_checkpoint(ref_files, opts);
         }
     }
 
@@ -1123,10 +1125,18 @@ int copy_directory(const options_t *opts, stats_t *stats)
                 format_stats_line(stats, opts->human_readable, stats_buffer, sizeof(stats_buffer));
                 print_status_update("%s", stats_buffer);
             }
+            ref_cache_checkpoint(ref_files, opts);
         }
     }
 
     if (ref_files) {
+        /* Final write regardless of the periodic checkpoint's own timing, so
+         * the last file's worth of progress is never lost to it simply not
+         * having fired again before the run ended. */
+        if (opts->cache_file) {
+            ref_cache_write(opts->cache_file, ref_files);
+        }
+
         /* Calculate index memory usage before freeing */
         stats->index_memory = sizeof(ref_files_t)
                             + (size_t)ref_files->count * sizeof(file_info_t *);

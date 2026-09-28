@@ -153,6 +153,8 @@ typedef struct {
     char *log_file;         /* Processed-files log path (NULL = disabled) */
     FILE *log_fp;           /* Append handle for log_file */
     struct skip_set *skip_set; /* Loaded from log_file if it existed */
+    char *cache_file;       /* Reference-scan cache path (NULL = disabled) */
+    long cache_ttl;         /* Per-directory cache freshness window in seconds (<=0 = no expiry) */
 } options_t;
 
 /* Block-based MD5 cache for incremental comparison */
@@ -169,6 +171,9 @@ typedef struct file_info {
     off_t size;                         /* File size in bytes */
     block_hashes_t block_hashes;        /* Block-based MD5 hashes */
     struct file_info *next;             /* Next file in linked list */
+    int ref_dir_index;                  /* Index into ref_files_t's ref_dir_paths this
+                                          * file came from, when the reference cache is
+                                          * in use; -1 otherwise. */
 } file_info_t;
 
 /* Command line parsing */
@@ -183,6 +188,19 @@ typedef struct {
     file_info_t **files;
     int count;
     int capacity;
+
+    /* Reference-cache bookkeeping (see ref_cache.c): which top-level -r
+     * directory each entry in `files` came from, recorded so the cache can
+     * be regrouped and saved by directory again. NULL/0 when opts->cache_file
+     * is not set. ref_dir_paths[i] is realpath()'d, used as the cache's
+     * identity key for that directory; ref_dir_scanned_at[i] is when that
+     * directory's entries were captured (from cache load, or "now" for a
+     * fresh scan), used to evaluate --cache-ttl per directory rather than
+     * against the cache file's own mtime, which would drift once entries
+     * from different scan times are merged together. */
+    char **ref_dir_paths;
+    time_t *ref_dir_scanned_at;
+    int ref_dir_count;
 } ref_files_t;
 
 /* File matching and deduplication */
@@ -256,5 +274,31 @@ skip_set_t *skip_set_load(const char *path);
 int skip_set_contains(const skip_set_t *set, const char *path,
                        off_t size, time_t mtime);
 void skip_set_free(skip_set_t *set);
+
+/* Reference-scan cache: persists a scanned ref_files_t (paths, sizes, and
+ * whatever block hashes have been built up) to a binary file, so a re-run
+ * against the same reference directories can skip rescanning them. Purely a
+ * performance cache -- it is fully regenerable from the reference
+ * directories at any time, so a missing, truncated, or version-mismatched
+ * file is never an error, only a fresh scan. See src/cpdd/ref_cache.c. */
+
+/* Read path into a ref_files_t containing whatever it holds (every
+ * directory it recorded, not filtered to opts->ref_dirs -- the caller does
+ * that). Returns NULL if the file doesn't exist, is corrupt, or is an
+ * incompatible version; never treated as fatal by callers. */
+ref_files_t *ref_cache_read(const char *path);
+
+/* Write ref_files's cache-relevant contents (path, size, ref_dir_* fields,
+ * block hashes) to path, replacing it directly. Returns 0 on success, -1 on
+ * error (a warning is printed; never fatal to the copy in progress, since
+ * losing a cache write only costs a future rescan). */
+int ref_cache_write(const char *path, const ref_files_t *ref_files);
+
+/* Call after each file is processed. Throttled internally (both by a file
+ * count sample and by a minimum interval) so it is cheap to call
+ * unconditionally; writes the cache at most every few seconds of real
+ * progress, so a long run that gets interrupted still leaves a useful
+ * cache behind. A no-op when opts->cache_file is NULL. */
+void ref_cache_checkpoint(const ref_files_t *ref_files, const options_t *opts);
 
 #endif

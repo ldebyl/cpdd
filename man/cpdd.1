@@ -82,6 +82,12 @@ Minimum file size in bytes for duplicate matching. Files smaller than \fISIZE\fR
 .BR \-\-log-processed " " \fIFILE\fR
 Resume-aware processed-files log. On startup, if \fIFILE\fR exists it is loaded as a skip-set: any source whose path, size and mtime all match a recorded entry is skipped before reference matching, so a re-run with \fB\-\-only-new\fR does not need to re-hash references or re-compare every source. Then \fIFILE\fR is opened for append and a tab-separated record (\fIpath\fR, \fIsize\fR, \fImtime\fR, \fIdecision\fR) is written for every source that reaches a final disposition (copied, linked, or skipped). Failures are never logged, so they get retried on the next run. The log is line-buffered and flushed after every record so an interrupted run leaves a consistent file on disk; pointing the next invocation at the same \fIFILE\fR resumes where it left off. A source whose size or mtime has changed since being logged is treated as new and processed normally. Paths containing backslash, tab or newline are escaped as \fB\\\\\\\\\fR, \fB\\\\t\fR and \fB\\\\n\fR respectively. Decisions emitted: \fBCOPY\fR, \fBLINK-HARD\fR, \fBLINK-SOFT\fR, \fBLINK-SRC-HARD\fR, \fBLINK-SRC-SOFT\fR, \fBSKIP-DUP\fR (matched in reference under \fB\-\-only-new\fR), \fBSKIP-EXIST\fR (destination already present under \fB\-\-no-clobber\fR or \fB\-\-update\fR), \fBSKIP-SYMLINK\fR, \fBSKIP-SAMEFILE\fR (source and destination are already the same file; see \fBSAME-FILE PROTECTION\fR).
 .TP
+.BR \-\-cache-file " " \fIFILE\fR
+Persist the scanned reference index (paths, sizes and any block hashes built up while matching) to \fIFILE\fR, and reuse it on later runs against the same reference directories instead of rescanning them. Each \fB\-r\fR directory is tracked independently by its canonical (\fBrealpath\fR(3)) form, so a directory not part of the current run is simply not used for matching, and a directory reused from \fIFILE\fR is only ever matched against files actually within it: nothing found via the cache can be outside the set of \fB\-r\fR directories given on this invocation, whatever else \fIFILE\fR happens to still hold from an earlier run. A directory present in \fIFILE\fR but not requested this run is dropped once \fIFILE\fR is next written, rather than kept. \fIFILE\fR is written directly (no atomic rename): it is written to periodically during a long run as well as once at the end, and a crash or interruption at worst loses the most recent partial checkpoint, never something \fIFILE\fR can't recover from on its own -- the cache is entirely regenerable from the reference directories, so a missing, truncated or incompatible \fIFILE\fR is silently treated as absent and rescanned in full, never an error.
+.TP
+.BR \-\-cache-ttl " " \fISECONDS\fR
+Treat a reference directory's entry in \fB\-\-cache-file\fR as stale, and rescan it, once more than \fISECONDS\fR have passed since it was last scanned (tracked per directory, not by \fIFILE\fR's own modification time, so directories cached at different times each expire on their own schedule rather than all sharing whichever one was written most recently). Default: no expiry -- a cached directory is reused until it is dropped (not requested on some later run) or \fIFILE\fR is removed. Requires \fB\-\-cache-file\fR.
+.TP
 .BR \-h ", " \-\-human-readable
 Show file sizes in human-readable format (K, M, G) in statistics and verbose output.
 .TP
@@ -127,6 +133,11 @@ cpdd \-R \-\-log-processed run.log src/ /dest/
 cpdd \-R \-\-log-processed run.log src/ /dest/
 .br
 The second invocation re-uses the same log: it reads any existing entries as a skip-set and then appends new ones. This works even for files dropped by \fB\-\-only-new\fR that leave no trace in \fI/dest/\fR.
+.TP
+.B Repeated runs against the same large reference set:
+cpdd \-R \-r /reference/ \-\-cache-file ref.cache \-\-cache-ttl 86400 source/ /dest/
+.br
+The first run scans \fI/reference/\fR in full and writes \fIref.cache\fR. Later runs against the same \fB\-r\fR reuse it instead of rescanning, as long as it is less than a day (86400s) old; add, drop or swap \fB\-r\fR directories between runs freely; each is tracked, cached and expired independently.
 .SH FILE MATCHING ALGORITHM
 .B cpdd
 uses a multi-stage matching process for efficient deduplication:
@@ -138,7 +149,7 @@ uses a multi-stage matching process for efficient deduplication:
 \- When \fB\-\-match-name\fR is enabled, only files with matching basenames are considered.
 .IP 3. 4
 .B Block-based hash comparison
-\- Cached block hashes provide fast rejection of non-matching files.
+\- Cached block hashes provide fast rejection of non-matching files. This only ever rejects a match, never confirms one (step 4 always still runs before anything is linked), and it only helps once a source file has more than one same-size reference candidate to compare against: each source file's own hash chain always starts empty, so the very first candidate it checks is never fast-rejected regardless of what \fB\-\-cache-file\fR carries over. Reference trees with many same-sized files (thumbnails, sequential exports, RAW+JPEG pairs) benefit the most; a reference tree with few or no same-size collisions gets no benefit from this stage either way, cached or not.
 .IP 4. 4
 .B Byte-by-byte comparison
 \- Final verification ensures content is truly identical before linking (skipped if \fB\-\-no-verify\fR is used).

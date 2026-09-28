@@ -23,8 +23,12 @@
    */
  
 
+/* realpath() is XSI, not implied by the Makefile's _POSIX_C_SOURCE alone */
+#define _XOPEN_SOURCE 700
+
 #include "cpdd.h"
 #include "md5.h"
+#include <time.h>
 
 /* Initialize block hash cache to empty state */
 void init_block_hashes(block_hashes_t *cache)
@@ -272,41 +276,140 @@ static int find_first_size_match(ref_files_t *ref_files, off_t target_size)
 }
 
 
-/* Scan reference directories and build sorted array of file metadata */
+/* Resolve dir to its canonical form, purely as a cache-identity key so two
+ * different spellings of the same directory (a relative path, a trailing
+ * slash, a symlink) are recognised as the same one across runs. Falls back
+ * to the argument text unmodified if it can't be resolved (e.g. it doesn't
+ * exist) -- scanning proceeds exactly as it always has either way, just
+ * without a cache lookup for that directory. */
+static char *ref_cache_key(const char *dir)
+{
+    char resolved[MAX_PATH];
+    if (realpath(dir, resolved) != NULL) {
+        return strdup(resolved);
+    }
+    return strdup(dir);
+}
+
+/* Scan reference directories and build sorted array of file metadata. When
+ * opts->cache_file is set, a directory already present and fresh (within
+ * opts->cache_ttl, or unconditionally if cache_ttl <= 0) in that cache is
+ * reused as-is instead of being rescanned; the rest are scanned normally.
+ * A directory previously cached but not requested this run is not reused --
+ * dropped along with the rest of the stale cache once a fresh one is
+ * written, so a match can only ever come from a directory actually in
+ * opts->ref_dirs this run, never a leftover from an earlier invocation. */
 ref_files_t *scan_reference_directory(const options_t *opts, stats_t *stats)
 {
     file_info_t *head = NULL;
     file_info_t *current;
     ref_files_t *sorted_files;
-    
-    /* First pass: collect all files from all reference directories */
+    ref_files_t *cached = NULL;
     int total_files = 0;
-    
-    for (int i = 0; i < opts->ref_dir_count; i++) {
-        collect_file_info(opts->ref_dirs[i], opts, &total_files, &head);
+
+    if (opts->cache_file) {
+        cached = ref_cache_read(opts->cache_file);
     }
-    
-    if (!head) {
-        return NULL;
-    }
-    
-    /* Allocate sorted array */
-    sorted_files = malloc(sizeof(ref_files_t));
+
+    sorted_files = calloc(1, sizeof(ref_files_t));
     if (!sorted_files) {
-        free_file_list(head);
+        if (cached) free_sorted_file_info(cached);
         return NULL;
     }
-    
+
+    if (opts->cache_file) {
+        sorted_files->ref_dir_paths = calloc((size_t)opts->ref_dir_count, sizeof(char *));
+        sorted_files->ref_dir_scanned_at = calloc((size_t)opts->ref_dir_count, sizeof(time_t));
+        if (!sorted_files->ref_dir_paths || !sorted_files->ref_dir_scanned_at) {
+            free(sorted_files->ref_dir_paths);
+            free(sorted_files->ref_dir_scanned_at);
+            free(sorted_files);
+            if (cached) free_sorted_file_info(cached);
+            return NULL;
+        }
+    }
+
+    for (int i = 0; i < opts->ref_dir_count; i++) {
+        char *key = opts->cache_file ? ref_cache_key(opts->ref_dirs[i]) : NULL;
+        int cache_idx = -1;
+        int reused = 0;
+
+        if (cached && key) {
+            for (int c = 0; c < cached->ref_dir_count; c++) {
+                if (strcmp(cached->ref_dir_paths[c], key) == 0) {
+                    cache_idx = c;
+                    break;
+                }
+            }
+        }
+
+        if (cache_idx >= 0) {
+            time_t age = time(NULL) - cached->ref_dir_scanned_at[cache_idx];
+            if (opts->cache_ttl <= 0 || age <= opts->cache_ttl) {
+                int n = 0;
+                for (int c = 0; c < cached->count; c++) {
+                    file_info_t *f = cached->files[c];
+                    if (f && f->ref_dir_index == cache_idx) {
+                        f->ref_dir_index = i;
+                        f->next = head;
+                        head = f;
+                        cached->files[c] = NULL;  /* transferred: don't double-free below */
+                        total_files++;
+                        n++;
+                    }
+                }
+                if (opts->verbose >= 3) {
+                    print_verbose("Reusing cached scan of %s: %d files (age %lds)",
+                                  opts->ref_dirs[i], n, (long)age);
+                }
+                reused = 1;
+            }
+        }
+
+        if (!reused) {
+            file_info_t *before = head;
+            collect_file_info(opts->ref_dirs[i], opts, &total_files, &head);
+            for (file_info_t *n = head; n != before; n = n->next) {
+                n->ref_dir_index = i;
+            }
+        }
+
+        if (opts->cache_file) {
+            sorted_files->ref_dir_paths[i] = key ? key : strdup(opts->ref_dirs[i]);
+            sorted_files->ref_dir_scanned_at[i] =
+                reused ? cached->ref_dir_scanned_at[cache_idx] : time(NULL);
+        } else {
+            free(key);
+        }
+    }
+    if (opts->cache_file) {
+        sorted_files->ref_dir_count = opts->ref_dir_count;
+    }
+
+    /* Anything left in `cached` at this point either belonged to a directory
+     * not requested this run, or was stale and got rescanned instead; either
+     * way it's not part of the result, so it goes with the old cache file. */
+    if (cached) free_sorted_file_info(cached);
+
+    if (!head) {
+        free(sorted_files->ref_dir_paths);
+        free(sorted_files->ref_dir_scanned_at);
+        free(sorted_files);
+        return NULL;
+    }
+
     sorted_files->files = malloc(sizeof(file_info_t *) * total_files);
     if (!sorted_files->files) {
-        free(sorted_files);
         free_file_list(head);
+        free(sorted_files->ref_dir_paths);
+        free(sorted_files->ref_dir_scanned_at);
+        free(sorted_files);
         return NULL;
     }
-    
+
     sorted_files->count = total_files;
     sorted_files->capacity = total_files;
-    
+
     /* Transfer files from linked list to array */
     current = head;
     for (int i = 0; i < total_files && current; i++) {
@@ -474,5 +577,12 @@ void free_sorted_file_info(ref_files_t *sorted_files)
     
     /* Free the array of pointers and the structure itself */
     free(sorted_files->files);
+
+    for (int i = 0; i < sorted_files->ref_dir_count; i++) {
+        free(sorted_files->ref_dir_paths[i]);
+    }
+    free(sorted_files->ref_dir_paths);
+    free(sorted_files->ref_dir_scanned_at);
+
     free(sorted_files);
 }
