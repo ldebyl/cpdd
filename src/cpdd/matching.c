@@ -183,11 +183,35 @@ static void collect_file_info(const char *ref_dir, const options_t *opts, int *c
         }
         
         snprintf(full_path, sizeof(full_path), "%s/%s", ref_dir, entry->d_name);
-        
+
+#ifdef CPDD_HAVE_D_TYPE
+        /* d_type is a BSD/Linux extension, not POSIX (POSIX only guarantees
+         * d_name), so this is purely an optional fast path: it must never
+         * change behaviour, only sometimes skip the stat() below. A real
+         * directory entry recurses immediately -- d_type is authoritative
+         * for it, since a symlink's own d_type is always DT_LNK, never
+         * DT_DIR, so this can't misidentify a symlink-to-a-directory as one.
+         * FIFOs, sockets and devices are likewise never a directory or a
+         * regular file, with or without an intervening symlink to resolve,
+         * so they can be skipped outright. A plain file (DT_REG) still
+         * needs stat() for its size, a symlink (DT_LNK) still needs it to
+         * follow the link the same way this function always has, and
+         * DT_UNKNOWN (the filesystem doesn't fill d_type in) falls back to
+         * the exact behaviour of a platform with no d_type support at all. */
+        if (entry->d_type == DT_DIR) {
+            collect_file_info(full_path, opts, count, head);
+            continue;
+        }
+        if (entry->d_type == DT_FIFO || entry->d_type == DT_SOCK ||
+            entry->d_type == DT_CHR  || entry->d_type == DT_BLK) {
+            continue;
+        }
+#endif
+
         if (stat(full_path, &st) != 0) {
             continue;
         }
-        
+
         if (S_ISDIR(st.st_mode)) {
             collect_file_info(full_path, opts, count, head);
         } else if (S_ISREG(st.st_mode)) {
@@ -408,6 +432,10 @@ file_info_t *find_matching_file(ref_files_t *ref_files, const char *src_file, co
                 break;
         }
 
+        /* The break above only leaves the switch; stop at the first match */
+        if (match) {
+            break;
+        }
     }
 
     update_hash_stats(stats, &src_info);

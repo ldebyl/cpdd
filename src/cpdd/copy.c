@@ -51,11 +51,32 @@ static int file_symlink(const char *target, const char *linkpath, const options_
     return symlink(target, linkpath);
 }
 
+/* True if dest already exists and is the same underlying file as src (same
+ * device and inode) -- e.g. dest is a hard link to src, perhaps created by
+ * an earlier cpdd run's reference-match linking. Opening a file with
+ * O_TRUNC while another descriptor is reading that same inode truncates the
+ * data out from under the read, so this has to be checked before file_copy
+ * ever opens dest. */
+static int same_file(const struct stat *src_st, const char *dest)
+{
+    struct stat dest_st;
+    return stat(dest, &dest_st) == 0 &&
+           dest_st.st_dev == src_st->st_dev && dest_st.st_ino == src_st->st_ino;
+}
+
 /* Copy file contents from src to dest. Returns bytes copied or -1 on error */
 static off_t file_copy(const char *src, const char *dest, const options_t *opts, struct stat *src_st)
 {
     if (opts->dry_run)
         return src_st->st_size;
+
+    /* Guard is repeated here, defense in depth: whatever calls file_copy(),
+     * this function must never destroy data by truncating src and dest as
+     * the same file. */
+    if (same_file(src_st, dest)) {
+        errno = 0;
+        return -1;
+    }
 
     size_t block_size = get_optimal_block_size(src, opts);
 
@@ -76,7 +97,19 @@ static off_t file_copy(const char *src, const char *dest, const options_t *opts,
         return -1;
     }
 
-    dest_fd = open(dest, O_WRONLY | O_CREAT | O_TRUNC, src_st->st_mode);
+    /* Never write into dest in place. Opening an existing path with O_TRUNC
+     * rewrites whatever inode is already there -- if dest is hard-linked to
+     * some other file entirely (an old cpdd run's linking, or anything a
+     * user set up), that file is silently corrupted too, and if dest is a
+     * symlink, O_TRUNC follows it and rewrites its target instead of dest
+     * itself. same_file() above only catches dest pointing at src; it can't
+     * catch dest pointing at anything else. Unlinking first removes only
+     * that one name -- it can never affect other names sharing the same
+     * content -- so the create below always starts a brand new inode.
+     * O_EXCL is a second guard against a similar entry reappearing between
+     * the unlink and the open. */
+    unlink(dest);
+    dest_fd = open(dest, O_WRONLY | O_CREAT | O_EXCL, src_st->st_mode);
     if (dest_fd < 0) {
         close(src_fd);
         free(buffer);
@@ -729,6 +762,21 @@ int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
                           src, dest, strerror(errno));
             /* fall through to regular copy */
         }
+    }
+
+    /* dest may already be the same file as src -- typically a hard link left
+     * by an earlier cpdd run's reference-match linking. Copying onto it
+     * would truncate the data both names point to before a single byte is
+     * read back, destroying src as well as dest. Recognise it and skip
+     * instead: the content is already identical, nothing needs to change. */
+    if (same_file(&src_st, dest)) {
+        if (opts->verbose >= 1) {
+            print_verbose("%s[SKIP]%s '%s' (already the same file as '%s')",
+                        color_yellow(), color_reset(), dest, src);
+        }
+        stats->files_skipped++;
+        processed_log_write(opts->log_fp, src, src_st.st_size, src_st.st_mtime, "SKIP-SAMEFILE");
+        return 0;
     }
 
     /* Fall back to regular copy */

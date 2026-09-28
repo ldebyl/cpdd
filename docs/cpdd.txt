@@ -124,7 +124,9 @@
               1m\\t  22mand  1m\\n  22mrespectively. Decisions emitted: 1mCOPY22m, 1mLINK-HARD22m,
               1mLINK-SOFT22m, 1mLINK-SRC-HARD22m, 1mLINK-SRC-SOFT22m,  1mSKIP-DUP  22m(matched  in
               reference  under  1m--only-new22m),  1mSKIP-EXIST  22m(destination already
-              present under 1m--no-clobber 22mor 1m--update22m), 1mSKIP-SYMLINK22m.
+              present under 1m--no-clobber  22mor  1m--update22m),  1mSKIP-SYMLINK22m,  1mSKIP-0m
+              1mSAMEFILE  22m(source and destination are already the same file; see
+              1mSAME-FILE PROTECTION22m).
 
        1m-h22m, 1m--human-readable0m
               Show file sizes in human-readable format (K, M, G) in statistics
@@ -215,6 +217,44 @@
 
        o   Broken symbolic links are skipped with a warning when dereferencing
            (default mode).
+
+1mSAME-FILE PROTECTION0m
+       A  regular copy never writes into an existing destination in place. The
+       destination path is unlinked first, and a brand new file is created  to
+       hold the source's content.
+
+       This  matters  because  a  destination  path can share its content with
+       something else entirely, without  that  being  obvious  from  the  path
+       alone:  it can be a hard link - to the source itself, typically left by
+       an earlier 1mcpdd 22mrun's reference-match linking (1m-L22m), or to any other un-
+       related file - or a symlink to some other target. Opening such  a  path
+       directly  and truncating it, as a naive overwrite would, rewrites what-
+       ever it currently shares content with, silently corrupting a file  that
+       has  nothing  to do with the copy. Unlinking the destination name first
+       removes only that one name; it can never affect other names that  share
+       the  same  underlying data, so the file created afterward is always new
+       and independent.
+
+       As a special case, if the destination is already the exact same file as
+       the source (matched by device and inode), the copy is skipped  entirely
+       (logged  as 1mSKIP-SAMEFILE22m) rather than unlinked and recreated: the con-
+       tent is already identical, and skipping preserves whatever  space  that
+       hard link was already saving instead of duplicating it.
+
+       One  consequence: unlike a plain in-place overwrite, an existing desti-
+       nation's own permissions, ownership and timestamps do not survive being
+       overwritten - the new file gets the source's mode (via  the  umask)  as
+       usual  for  a  newly created file, the same as when the destination did
+       not exist beforehand. Use 1m-p22m/1m--preserve 22mif the destination's attributes
+       should instead be made to match the source's  explicitly.  This  trades
+       away  a property some tools' in-place overwrite deliberately keeps (see
+       1mcp22m(1)'s 1m--remove-destination22m, which is the opposite of 1mcp22m's own default
+       for exactly this reason) in exchange for the  corruption  this  section
+       describes never being possible.
+
+       This  check does not apply to hard or symbolic linking itself: creating
+       a new link already removes any existing destination  file  name  first,
+       and is always safe in the same way.
 
 1mBUGS0m
        Report bugs at: https://github.com/32kb-net/cpdd/issues
