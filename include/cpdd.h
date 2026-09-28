@@ -181,7 +181,10 @@ int parse_args(int argc, char *argv[], options_t *opts);
 
 /* Main copy operations */
 int copy_directory(const options_t *opts, stats_t *stats);
-int create_directory_structure(const char *src_path, const char *dest_path, const options_t *opts);
+/* known_src_st: pass the caller's already-computed stat() of src_path to
+ * avoid a redundant one here, or NULL to have it stat'd internally. */
+int create_directory_structure(const char *src_path, const char *dest_path,
+                                const options_t *opts, const struct stat *known_src_st);
 
 /* Sorted file info structure */
 typedef struct {
@@ -214,7 +217,12 @@ int grow_block_hashes(block_hashes_t *hashes);
 void free_block_hashes(block_hashes_t *hashes);
 
 /* File operations */
-int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files, const options_t *opts, stats_t *stats);
+/* dest_dir_ready: pass true when the caller already guarantees dest's
+ * parent directory exists (e.g. it was just created before iterating the
+ * files inside it), so the regular-file copy path can skip re-verifying it
+ * -- a stat() otherwise repeated, and almost always wasted, on every file. */
+int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
+                       const options_t *opts, stats_t *stats, int dest_dir_ready);
 int should_overwrite(const char *src_path, const char *dest_path, const options_t *opts);
 int preserve_file_attributes(const char *src, const char *dest, const preserve_t *preserve);
 int parse_preserve_list(const char *preserve_list, preserve_t *preserve);

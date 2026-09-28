@@ -503,18 +503,26 @@ static int create_parent_directories(const char *path, mode_t default_mode, cons
     return 0;
 }
 
-/* Ensure dest directory structure exists, preserving src permissions */
-int create_directory_structure(const char *src_path, const char *dest_path, const options_t *opts)
+/* Ensure dest directory structure exists, preserving src permissions.
+ * known_src_st lets a caller that already has src's stat() pass it in
+ * instead of paying for a second one here. */
+int create_directory_structure(const char *src_path, const char *dest_path,
+                                const options_t *opts, const struct stat *known_src_st)
 {
-    struct stat src_st;
+    struct stat local_st;
+    const struct stat *src_st;
 
-    if (stat(src_path, &src_st) != 0) {
-        return -1;
+    src_st = known_src_st;
+    if (!src_st) {
+        if (stat(src_path, &local_st) != 0) {
+            return -1;
+        }
+        src_st = &local_st;
     }
 
-    if (S_ISDIR(src_st.st_mode)) {
+    if (S_ISDIR(src_st->st_mode)) {
         /* Source is directory - create destination directory */
-        if (create_directory(dest_path, src_st.st_mode, opts) != 0) {
+        if (create_directory(dest_path, src_st->st_mode, opts) != 0) {
             return -1;
         }
 
@@ -535,7 +543,8 @@ int create_directory_structure(const char *src_path, const char *dest_path, cons
 }
 
 /* Copy file, or create link to matching reference file if found */
-int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files, const options_t *opts, stats_t *stats)
+int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
+                       const options_t *opts, stats_t *stats, int dest_dir_ready)
 {
     struct stat src_st;
     file_info_t *matching_file = NULL;
@@ -603,7 +612,7 @@ int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
         }
 
         /* Ensure destination directory exists */
-        if (create_directory_structure(src, dest, opts) != 0) {
+        if (!dest_dir_ready && create_directory_structure(src, dest, opts, NULL) != 0) {
             return -1;
         }
 
@@ -652,8 +661,15 @@ int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
         return 0;
     }
 
-    /* Ensure destination directory exists */
-    if (create_directory_structure(src, dest, opts) != 0) {
+    /* Ensure destination directory exists. Skipped when the caller already
+     * guarantees it (dest_dir_ready): the redundant stat() of src this
+     * would otherwise repeat, and the near-always-succeeds stat() of the
+     * parent directory inside it, cost one wasted syscall pair per file --
+     * significant when copying many small files. When it does run, src_st
+     * is passed in already computed above, so at most the parent-directory
+     * check is paid for, never a second stat() of src itself. */
+    if (!dest_dir_ready &&
+        create_directory_structure(src, dest, opts, &src_st) != 0) {
         print_error("Cannot create directory structure for %s: %s", dest, strerror(errno));
         stats->files_failed++;
         return -1;
@@ -928,7 +944,7 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
         return -1;
     }
 
-    if (create_directory_structure(src_path, dest_path, opts) != 0) {
+    if (create_directory_structure(src_path, dest_path, opts, NULL) != 0) {
         print_error("Cannot create destination directory %s: %s", dest_path, strerror(errno));
         closedir(src_dir);
         return -1;
@@ -1008,7 +1024,10 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
             if (try_skip_existing(dest_names, dest_name_count, src_full, entry->d_name, opts, stats)) {
                 continue;
             }
-            if (copy_or_link_file(src_full, dest_full, ref_files, opts, stats) != 0) {
+            /* dest_dir_ready=1: dest_path (the directory this loop is
+             * iterating) was already created above, before this loop
+             * started, so its existence never needs reverifying per entry. */
+            if (copy_or_link_file(src_full, dest_full, ref_files, opts, stats, 1) != 0) {
                 continue;
             }
 
@@ -1032,7 +1051,8 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
             if (try_skip_existing(dest_names, dest_name_count, src_full, entry->d_name, opts, stats)) {
                 continue;
             }
-            if (copy_or_link_file(src_full, dest_full, ref_files, opts, stats) != 0) {
+            /* dest_dir_ready=1: same reasoning as the symlink branch above. */
+            if (copy_or_link_file(src_full, dest_full, ref_files, opts, stats, 1) != 0) {
                 continue;
             }
 
@@ -1115,7 +1135,10 @@ int copy_directory(const options_t *opts, stats_t *stats)
                 overall_result = -1;
             }
         } else {
-            if (copy_or_link_file(src_path, dest_path, ref_files, opts, stats) != 0) {
+            /* dest_dir_ready=0: this is a top-level source named directly on
+             * the command line, so unlike the recursive-walk call sites,
+             * opts->dest_dir's existence has not already been established. */
+            if (copy_or_link_file(src_path, dest_path, ref_files, opts, stats, 0) != 0) {
                 overall_result = -1;
                 continue;
             }
