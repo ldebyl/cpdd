@@ -208,7 +208,10 @@ typedef struct {
 
 /* File matching and deduplication */
 ref_files_t *scan_reference_directory(const options_t *opts, stats_t *stats);
-file_info_t *find_matching_file(ref_files_t *ref_files, const char *src_file, const options_t *opts, stats_t *stats);
+/* src_size: the caller's already-known size of src_file (from a stat() it
+ * already has), so this never needs to stat() src_file itself. */
+file_info_t *find_matching_file(ref_files_t *ref_files, const char *src_file,
+                                 off_t src_size, const options_t *opts, stats_t *stats);
 match_result_t files_match(file_info_t *ref_file, file_info_t *src_file);
 
 /* Block hash management */

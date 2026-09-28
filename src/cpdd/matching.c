@@ -452,23 +452,17 @@ static void update_hash_stats(stats_t *stats, file_info_t *file)
 }
 
 /* Find reference file matching src by size and content. Returns NULL if none */
-file_info_t *find_matching_file(ref_files_t *ref_files, const char *src_file, const options_t *opts, stats_t *stats)
+file_info_t *find_matching_file(ref_files_t *ref_files, const char *src_file,
+                                 off_t src_size, const options_t *opts, stats_t *stats)
 {
-    struct stat st;
-
     if (ref_files == NULL || ref_files->count == 0) {
         return NULL; /* No reference files available */
-    }
-
-    if (stat(src_file, &st) != 0) {
-        print_error("Cannot stat source file %s", src_file);
-        return NULL;
     }
 
     /* Create file_info_t structure for source file */
     file_info_t src_info;
     src_info.path = (char *)src_file;
-    src_info.size = st.st_size;
+    src_info.size = src_size;
     src_info.next = NULL;
 
     /* Set basename as pointer into path */
@@ -480,12 +474,12 @@ file_info_t *find_matching_file(ref_files_t *ref_files, const char *src_file, co
     file_info_t *match = NULL;
 
     /* Skip files below minimum match size */
-    if (st.st_size < opts->min_size) {
+    if (src_size < opts->min_size) {
         return NULL;
     }
 
     /* Find first file with matching size */
-    int first_match = find_first_size_match(ref_files, st.st_size);
+    int first_match = find_first_size_match(ref_files, src_size);
     if (first_match == -1) {
         return NULL;  /* No files with matching size found */
     }
@@ -493,7 +487,7 @@ file_info_t *find_matching_file(ref_files_t *ref_files, const char *src_file, co
     stats->files_with_size_matches++;
 
     /* Check all files with the same size starting from first_match */
-    for (int i = first_match; i < ref_files->count && ref_files->files[i]->size == st.st_size; i++) {
+    for (int i = first_match; i < ref_files->count && ref_files->files[i]->size == src_size; i++) {
         file_info_t *current = ref_files->files[i];
 
         /* If name matching is enabled, check if basenames match */
