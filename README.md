@@ -50,6 +50,7 @@ Options:
   -L, --hard-link       Create hard links (default with -r)
   -s, --symbolic-link   Create symbolic links  
   -R, --recursive       Copy directories recursively
+  -a, --archive         Same as -R --no-dereference --preserve=all
   --stats               Show operation statistics
   -v, --verbose         Increase verbosity (-vv, -vvv)
   --help                Show help

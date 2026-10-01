@@ -184,7 +184,8 @@ void cleanup_incomplete_file(void)
 }
 
 /* Copy a symbolic link itself (not its target) */
-static int copy_symlink(const char *src, const char *dest, const options_t *opts) {
+static int copy_symlink(const char *src, const char *dest, const options_t *opts,
+                        const struct stat *src_st) {
     char link_target[MAX_PATH];
     ssize_t len;
 
@@ -213,6 +214,11 @@ static int copy_symlink(const char *src, const char *dest, const options_t *opts
     if (symlink(link_target, dest) != 0) {
         print_error("Cannot create symlink %s: %s", dest, strerror(errno));
         return -1;
+    }
+
+    if (PRESERVE_ANY(&opts->preserve) &&
+        preserve_file_attributes(src_st, dest, &opts->preserve, 1) != 0) {
+        print_warning("Failed to preserve attributes for %s", dest);
     }
 
     if (opts->verbose >= 1) {
@@ -259,39 +265,82 @@ int should_overwrite(const char *src_path, const char *dest_path, const options_
     return 1; /* Default: overwrite */
 }
 
-/* Copy file attributes (mode, ownership, timestamps) from src to dest.
- * Each attribute is attempted independently; a failure on one does not
- * prevent the others from being applied. Returns 0 if all requested
- * attributes were applied, -1 if any failed. */
-int preserve_file_attributes(const char *src, const char *dest, const preserve_t *preserve)
+/* Nanosecond-resolution atime/mtime from a struct stat. macOS only exposes
+ * the timespec members outside strict POSIX mode, so build them there. */
+static struct timespec stat_atime(const struct stat *st)
 {
-    struct stat src_st;
-    struct utimbuf times;
-    int rc = 0;
+#if defined(__APPLE__) && defined(_POSIX_C_SOURCE) && !defined(_DARWIN_C_SOURCE)
+    struct timespec ts = { st->st_atime, st->st_atimensec };
+    return ts;
+#elif defined(__APPLE__)
+    return st->st_atimespec;
+#else
+    return st->st_atim;
+#endif
+}
 
-    if (stat(src, &src_st) != 0) {
-        return -1;
+static struct timespec stat_mtime(const struct stat *st)
+{
+#if defined(__APPLE__) && defined(_POSIX_C_SOURCE) && !defined(_DARWIN_C_SOURCE)
+    struct timespec ts = { st->st_mtime, st->st_mtimensec };
+    return ts;
+#elif defined(__APPLE__)
+    return st->st_mtimespec;
+#else
+    return st->st_mtim;
+#endif
+}
+
+/* Apply src_st's attributes to dest, as selected by preserve.
+ * Each attribute is attempted independently; a failure on one does not
+ * prevent the others from being applied. nofollow applies them to dest
+ * itself when it is a symlink (mode is skipped there: symlink permissions
+ * aren't settable on Linux and are ignored everywhere else).
+ * Returns 0 if all requested attributes were applied, -1 if any failed. */
+int preserve_file_attributes(const struct stat *src_st, const char *dest,
+                             const preserve_t *preserve, int nofollow)
+{
+    int rc = 0;
+    mode_t mode = src_st->st_mode & 07777;
+
+    /* Ownership before mode: chown() clears setuid/setgid bits, so doing it
+     * second would silently strip them from the mode just applied. */
+    if (preserve->ownership) {
+        int (*chown_fn)(const char *, uid_t, gid_t) = nofollow ? lchown : chown;
+
+        if (chown_fn(dest, src_st->st_uid, src_st->st_gid) != 0) {
+            int err = errno;
+            /* Unprivileged users can't give files away, but may still be
+             * able to set the group if they belong to it. */
+            int gid_ok = err == EPERM && chown_fn(dest, (uid_t)-1, src_st->st_gid) == 0;
+
+            /* Never leave setuid/setgid bits on a file that didn't get the
+             * user/group they were meant to run as. */
+            mode &= ~(mode_t)S_ISUID;
+            if (!gid_ok)
+                mode &= ~(mode_t)S_ISGID;
+
+            if (err != EPERM || preserve->ownership == PRESERVE_EXPLICIT) {
+                print_warning("chown %s: %s", dest, strerror(err));
+                rc = -1;
+            }
+        }
     }
 
-    if (preserve->mode) {
-        if (chmod(dest, src_st.st_mode) != 0) {
+    if (preserve->mode && !nofollow) {
+        if (chmod(dest, mode) != 0) {
             print_warning("chmod %s: %s", dest, strerror(errno));
             rc = -1;
         }
     }
 
-    if (preserve->ownership) {
-        if (chown(dest, src_st.st_uid, src_st.st_gid) != 0) {
-            print_warning("chown %s: %s", dest, strerror(errno));
-            rc = -1;
-        }
-    }
-
-    if (preserve->timestamps) {
-        times.actime = src_st.st_atime;
-        times.modtime = src_st.st_mtime;
-        if (utime(dest, &times) != 0) {
-            print_warning("utime %s: %s", dest, strerror(errno));
+    /* Timestamps last: nothing after this may touch dest's contents. */
+    if (preserve->atime || preserve->mtime) {
+        struct timespec times[2];
+        times[0] = preserve->atime ? stat_atime(src_st) : (struct timespec){ 0, UTIME_OMIT };
+        times[1] = preserve->mtime ? stat_mtime(src_st) : (struct timespec){ 0, UTIME_OMIT };
+        if (utimensat(AT_FDCWD, dest, times, nofollow ? AT_SYMLINK_NOFOLLOW : 0) != 0) {
+            print_warning("utimensat %s: %s", dest, strerror(errno));
             rc = -1;
         }
     }
@@ -525,13 +574,8 @@ int create_directory_structure(const char *src_path, const char *dest_path,
         if (create_directory(dest_path, src_st->st_mode, opts) != 0) {
             return -1;
         }
-
-        /* Preserve attributes if requested */
-        if (opts->preserve.mode || opts->preserve.ownership || opts->preserve.timestamps) {
-            if (!opts->dry_run) {
-                preserve_file_attributes(src_path, dest_path, &opts->preserve);
-            }
-        }
+        /* Attributes are applied by copy_directory_recursive() once the
+         * directory is populated -- adding entries would reset its mtime. */
     } else {
         /* Source is file - create parent directory for destination file */
         if (create_parent_directories(dest_path, 0755, opts) != 0) {
@@ -617,7 +661,7 @@ int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
         }
 
         /* Copy the symlink itself, skip all duplicate detection */
-        return copy_symlink(src, dest, opts);
+        return copy_symlink(src, dest, opts, &src_st);
     }
 
     /* At this point, we either have a regular file or a dereferenced symlink */
@@ -808,9 +852,10 @@ int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
     stats->files_copied++;
     stats->bytes_copied += bytes_copied;
 
-    /* Preserve attributes if requested */
-    if (opts->preserve.mode || opts->preserve.ownership || opts->preserve.timestamps) {
-        if (preserve_file_attributes(src, dest, &opts->preserve) != 0) {
+    /* Preserve attributes if requested. Never on a dry run: dest was not
+     * written, and if it already exists it isn't ours to modify. */
+    if (!opts->dry_run && PRESERVE_ANY(&opts->preserve)) {
+        if (preserve_file_attributes(&src_st, dest, &opts->preserve, 0) != 0) {
             print_warning("Failed to preserve attributes for %s", dest);
         }
     }
@@ -929,10 +974,23 @@ static int try_skip_existing(char **dest_names, int dest_name_count,
 }
 
 /* Recursively copy directory contents, linking duplicates when possible */
+/* Entries actually written to the destination (or that would be, on a dry
+ * run) -- as opposed to skipped. */
+static int placed_count(const stats_t *stats)
+{
+    return stats->files_copied + stats->files_hard_linked + stats->files_soft_linked;
+}
+
+/* *placed (optional) is set to whether anything ended up in dest_path,
+ * directly or in a subdirectory, for --prune-empty-dirs. */
 static int copy_directory_recursive(const char *src_path, const char *dest_path,
-                                    ref_files_t *ref_files, const options_t *opts, stats_t *stats)
+                                    ref_files_t *ref_files, const options_t *opts, stats_t *stats,
+                                    int *placed)
 {
     DIR *src_dir;
+    struct stat dest_st;
+    int created = 0;
+    int kept = 0;
     struct dirent *entry;
     struct stat st;
     char src_full[MAX_PATH];
@@ -946,16 +1004,18 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
         return -1;
     }
 
+    if (placed)
+        *placed = 1;  /* Conservative until the walk below says otherwise */
+
+    /* Only a directory this run creates is ever pruned; one that already
+     * existed is left alone however empty it is. */
+    if (opts->prune_empty_dirs)
+        created = lstat(dest_path, &dest_st) != 0;
+
     if (create_directory_structure(src_path, dest_path, opts, NULL) != 0) {
         print_error("Cannot create destination directory %s: %s", dest_path, strerror(errno));
         closedir(src_dir);
         return -1;
-    }
-
-    if (opts->preserve.mode || opts->preserve.ownership || opts->preserve.timestamps) {
-        if (preserve_file_attributes(src_path, dest_path, &opts->preserve) != 0 && opts->verbose) {
-            print_warning("Failed to preserve attributes for directory %s", dest_path);
-        }
     }
 
     /* For --no-clobber, list the destination directory once and use it as
@@ -1026,12 +1086,17 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
             if (try_skip_existing(dest_names, dest_name_count, src_full, entry->d_name, opts, stats)) {
                 continue;
             }
+            /* Copied symlinks aren't counted in placed_count(), so tell
+             * placement apart from a skip by the skip counter instead. */
+            int skipped_before = stats->files_skipped;
             /* dest_dir_ready=1: dest_path (the directory this loop is
              * iterating) was already created above, before this loop
              * started, so its existence never needs reverifying per entry. */
             if (copy_or_link_file(src_full, dest_full, ref_files, opts, stats, 1) != 0) {
                 continue;
             }
+            if (stats->files_skipped == skipped_before)
+                kept = 1;
 
             if (opts->show_stats && opts->verbose == 0) {
                 char stats_buffer[256];
@@ -1044,7 +1109,12 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
 
         if (S_ISDIR(st.st_mode)) {
             if (opts->recursive) {
-                if (copy_directory_recursive(src_full, dest_full, ref_files, opts, stats) != 0) {
+                int child_placed;
+                int rc = copy_directory_recursive(src_full, dest_full, ref_files, opts, stats,
+                                                  &child_placed);
+                if (child_placed)
+                    kept = 1;
+                if (rc != 0) {
                     stats->files_failed++;
                     continue;
                 }
@@ -1053,10 +1123,13 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
             if (try_skip_existing(dest_names, dest_name_count, src_full, entry->d_name, opts, stats)) {
                 continue;
             }
+            int placed_before = placed_count(stats);
             /* dest_dir_ready=1: same reasoning as the symlink branch above. */
             if (copy_or_link_file(src_full, dest_full, ref_files, opts, stats, 1) != 0) {
                 continue;
             }
+            if (placed_count(stats) != placed_before)
+                kept = 1;
 
             if (opts->show_stats && opts->verbose == 0) {
                 char stats_buffer[256];
@@ -1069,6 +1142,33 @@ static int copy_directory_recursive(const char *src_path, const char *dest_path,
 
     closedir(src_dir);
     free_name_set(dest_names, dest_name_count);
+
+    /* The destination root itself is never pruned, as with rsync: the user
+     * named it, so it should exist afterwards. rmdir() only ever removes an
+     * empty directory, so nothing placed here can be lost to a miscount. */
+    if (created && !kept && strcmp(dest_path, opts->dest_dir) != 0) {
+        if (opts->dry_run || rmdir(dest_path) == 0) {
+            if (placed)
+                *placed = 0;
+            if (opts->verbose >= 1)
+                print_verbose("%s%s[PRUNE]%s '%s'",
+                              opts->dry_run ? color_dim() : "",
+                              opts->dry_run ? "[DRY RUN] " : "",
+                              color_reset(), dest_path);
+            return 0;
+        }
+    }
+
+    /* Only now that every child is in place: each entry created above bumped
+     * the directory's mtime, so applying it any earlier would be undone. */
+    if (!opts->dry_run && PRESERVE_ANY(&opts->preserve)) {
+        struct stat dir_st;
+        if (stat(src_path, &dir_st) != 0 ||
+            preserve_file_attributes(&dir_st, dest_path, &opts->preserve, 0) != 0) {
+            if (opts->verbose)
+                print_warning("Failed to preserve attributes for directory %s", dest_path);
+        }
+    }
     return 0;
 }
 
@@ -1133,7 +1233,7 @@ int copy_directory(const options_t *opts, stats_t *stats)
 
         /* Copy source to destination */
         if (S_ISDIR(src_st.st_mode)) {
-            if (copy_directory_recursive(src_path, dest_path, ref_files, opts, stats) != 0) {
+            if (copy_directory_recursive(src_path, dest_path, ref_files, opts, stats, NULL) != 0) {
                 overall_result = -1;
             }
         } else {

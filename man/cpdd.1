@@ -23,6 +23,9 @@ Create symbolic links to reference files when content matches.
 .BR \-R ", " \-\-recursive
 Copy directories recursively.
 .TP
+.BR \-a ", " \-\-archive
+Archive mode: same as \fB\-R \-\-no-dereference \-\-preserve=all\fR, as in \fBcp\fR(1). Can be narrowed with later options, e.g. \fB\-a \-\-no-preserve=ownership\fR. With \fB\-\-skip-symlinks\fR, symbolic links are skipped instead of being copied as links.
+.TP
 .BR \-n ", " \-\-no-clobber
 Never overwrite existing files.
 .TP
@@ -42,21 +45,34 @@ Only copy files that don't exist in reference directories. Files with identical 
 Preserve file attributes (equivalent to \fB\-\-preserve=mode,ownership,timestamps\fR).
 .TP
 .BR \-\-preserve [=\fIATTR_LIST\fR]
-Preserve specified file attributes. If no \fIATTR_LIST\fR is given, preserves mode, ownership, and timestamps. Available attributes:
+Preserve specified file attributes. If no \fIATTR_LIST\fR is given, preserves mode, ownership, and timestamps. Attributes accumulate across options, so \fB\-\-preserve=mode \-\-preserve=atime\fR preserves both. Available attributes:
 .RS
 .IP \(bu 4
 .B mode
-\- file permissions
+\- file permissions, including setuid/setgid/sticky bits
 .IP \(bu 4
 .B ownership
-\- user and group ownership
+\- user and group ownership. Changing a file's owner requires root; when it isn't permitted, the group alone is set if possible. That fallback is silent when ownership is requested implicitly (by \fB\-p\fR, \fB\-a\fR, a bare \fB\-\-preserve\fR or \fBall\fR) and a reported failure when \fBownership\fR is named explicitly, as in \fBcp\fR(1). Either way, setuid and setgid bits are dropped from a copy that did not get the matching owner or group.
+.IP \(bu 4
+.B atime
+\- access time
+.IP \(bu 4
+.B mtime
+\- modification time
 .IP \(bu 4
 .B timestamps
-\- access and modification times
+\- atime and mtime
 .IP \(bu 4
 .B all
 \- all of the above
 .RE
+.IP
+Timestamps are copied with full nanosecond precision. A directory's attributes are applied after its contents have been copied, so its mtime is not reset by the files created inside it. With \fB\-\-no-dereference\fR, ownership and timestamps are applied to copied symbolic links themselves. Nothing is preserved on a \fB\-\-dry-run\fR. Hard-linked reference matches share the reference file's inode, so they always carry the reference's attributes and are never modified.
+.IP
+\fBctime\fR (inode change time) and birth time cannot be preserved: the kernel sets them, and offers no call to set them to an arbitrary value. Every copy's ctime is the time it was written.
+.TP
+.BR \-\-no-preserve =\fIATTR_LIST\fR
+Don't preserve the specified attributes, using the same names as \fB\-\-preserve\fR. Options are applied left to right, so \fB\-\-preserve=all \-\-no-preserve=atime\fR preserves everything except atime.
 .TP
 .BR \-\-stats
 Display statistics after the copy operation, including number of files copied, linked, and skipped.
@@ -72,6 +88,9 @@ Skip content comparison and accept matches based solely on size and filename. Re
 .TP
 .BR \-\-no-dereference
 Do not follow symbolic links. When this option is specified, symbolic links are copied as symbolic links rather than copying the files they point to. Duplicate detection is skipped for symbolic links. Without this option (default), symbolic links are dereferenced and their targets are copied. Mutually exclusive with \fB\-\-skip-symlinks\fR.
+.TP
+.BR \-\-prune-empty-dirs
+Don't leave empty directories in the destination. A directory is pruned when nothing ends up in it, either directly or in any subdirectory: this covers directories that were empty in the source, and also ones whose files were all skipped, e.g. as duplicates with \fB\-N\fR or as already-processed with \fB\-\-log-processed\fR. Only directories this run creates are pruned. Directories that already existed are left alone, and the destination itself is never removed. With \fB\-\-dry-run \-v\fR, directories that would be pruned are listed as \fB[PRUNE]\fR. Equivalent to \fBrsync\fR(1)'s \fB\-\-prune-empty-dirs\fR.
 .TP
 .BR \-\-skip-symlinks
 Skip symbolic links entirely. Symbolic links are neither copied nor dereferenced - they are simply ignored. Useful for copying only regular files or when copying to filesystems that don't support symbolic links. Mutually exclusive with \fB\-\-no-dereference\fR.

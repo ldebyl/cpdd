@@ -25,8 +25,9 @@
 #include "cpdd.h"
 #include <getopt.h>
 
-/* Parse comma-separated preserve attribute list */
-int parse_preserve_list(const char *preserve_list, preserve_t *preserve) {
+/* Parse comma-separated preserve attribute list, setting each named
+ * attribute to value (1 for --preserve, 0 for --no-preserve). */
+int parse_preserve_list(const char *preserve_list, preserve_t *preserve, int value) {
     char *list_copy, *token, *saveptr;
 
     list_copy = strdup(preserve_list);
@@ -38,19 +39,33 @@ int parse_preserve_list(const char *preserve_list, preserve_t *preserve) {
     token = strtok_r(list_copy, ",", &saveptr);
     while (token) {
         if (strcmp(token, "mode") == 0) {
-            preserve->mode = 1;
+            preserve->mode = value;
         } else if (strcmp(token, "ownership") == 0) {
-            preserve->ownership = 1;
+            preserve->ownership = value ? PRESERVE_EXPLICIT : 0;
+        } else if (strcmp(token, "atime") == 0) {
+            preserve->atime = value;
+        } else if (strcmp(token, "mtime") == 0) {
+            preserve->mtime = value;
         } else if (strcmp(token, "timestamps") == 0) {
-            preserve->timestamps = 1;
+            preserve->atime = value;
+            preserve->mtime = value;
         } else if (strcmp(token, "all") == 0) {
-            preserve->all = 1;
-            preserve->mode = 1;
-            preserve->ownership = 1;
-            preserve->timestamps = 1;
+            preserve->mode = value;
+            if (!value)
+                preserve->ownership = 0;
+            else if (!preserve->ownership)
+                preserve->ownership = PRESERVE_IMPLICIT;
+            preserve->atime = value;
+            preserve->mtime = value;
+        } else if (strcmp(token, "ctime") == 0 || strcmp(token, "btime") == 0 ||
+                   strcmp(token, "crtime") == 0) {
+            print_error("'%s' cannot be preserved: the kernel sets it, not the caller", token);
+            fprintf(stderr, "Every copy gets a %s of the time it was written.\n", token);
+            free(list_copy);
+            return -1;
         } else {
             print_error("Invalid preserve attribute '%s'", token);
-            fprintf(stderr, "Valid attributes: mode, ownership, timestamps, all\n");
+            fprintf(stderr, "Valid attributes: mode, ownership, atime, mtime, timestamps, all\n");
             free(list_copy);
             return -1;
         }
@@ -71,15 +86,18 @@ void print_usage(const char *program_name) {
     printf("      --hard-link-source     Hard link unmatched files back to the source instead of copying\n");
     printf("      --symbolic-link-source Symlink unmatched files back to the source instead of copying\n");
     printf("  -R, --recursive        Copy directories recursively\n");
+    printf("  -a, --archive          Same as -R --no-dereference --preserve=all\n");
+    printf("  --prune-empty-dirs     Don't create directories that would end up empty, including ones\n");
+    printf("                           whose files were all skipped (e.g. as duplicates with -N)\n");
     printf("  -n, --no-clobber       Never overwrite existing files\n");
     printf("  -i, --interactive      Prompt before overwrite\n");
     printf("  -u, --update           Overwrite only if source is newer than destination\n");
     printf("  --dry-run              Show what would be done without actually doing it\n");
     printf("  -N, --only-new         Only copy files that don't exist in reference directories\n");
     printf("  -p                     Same as --preserve=mode,ownership,timestamps\n");
-    printf("  --preserve[=ATTR_LIST] Preserve the specified attributes\n");
-    printf("                           (default: mode,ownership,timestamps)\n");
-    printf("                         Additional attributes: all\n");
+    printf("  --preserve[=ATTR_LIST] Preserve the specified attributes (no list: mode,ownership,timestamps)\n");
+    printf("                           ATTR_LIST: mode, ownership, atime, mtime, timestamps (=atime,mtime), all\n");
+    printf("  --no-preserve=ATTR_LIST  Don't preserve the specified attributes (e.g. --no-preserve=mtime)\n");
     printf("  --stats                Show statistics after operation\n");
     printf("  --block-size SIZE      I/O block size (default: auto-detect from filesystem)\n");
     printf("                           SIZE can be bytes or with suffix K, M, G (e.g., 64K, 1M)\n");
@@ -111,18 +129,21 @@ void print_usage(const char *program_name) {
 int parse_args(int argc, char *argv[], options_t *opts) {
     int opt;
     int option_index = 0;
+    int archive = 0;
 
     static struct option long_options[] = {
         {"reference",     required_argument, 0, 'r'},
         {"hard-link",     no_argument,       0, 'L'},
         {"symbolic-link", no_argument,       0, 's'},
         {"recursive",     no_argument,       0, 'R'},
+        {"archive",       no_argument,       0, 'a'},
         {"no-clobber",    no_argument,       0, 'n'},
         {"interactive",   no_argument,       0, 'i'},
         {"update",        no_argument,       0, 'u'},
         {"dry-run",       no_argument,       0, 'D'},
         {"only-new",      no_argument,       0, 'N'},
         {"preserve",      optional_argument, 0, 'P'},
+        {"no-preserve",   required_argument, 0, 1006},
         {"stats",         no_argument,       0, 'S'},
         {"block-size",    required_argument, 0, 'B'},
         {"match-name",    no_argument,       0, 'm'},
@@ -135,6 +156,7 @@ int parse_args(int argc, char *argv[], options_t *opts) {
         {"log-processed", required_argument, 0, 1003},
         {"cache-file",    required_argument, 0, 1004},
         {"cache-ttl",     required_argument, 0, 1005},
+        {"prune-empty-dirs", no_argument,    0, 1007},
         {"human-readable", no_argument,      0, 'h'},
         {"verbose",       no_argument,       0, 'v'},
         {"help",          no_argument,       0, 'H'},
@@ -161,12 +183,13 @@ int parse_args(int argc, char *argv[], options_t *opts) {
     opts->no_verify = 0;
     opts->no_dereference = 0;
     opts->skip_symlinks = 0;
+    opts->prune_empty_dirs = 0;
     opts->block_size = 0;  /* 0 = auto-detect */
     opts->min_size = 1;    /* Default: skip empty files */
     opts->preserve.mode = 0;
     opts->preserve.ownership = 0;
-    opts->preserve.timestamps = 0;
-    opts->preserve.all = 0;
+    opts->preserve.atime = 0;
+    opts->preserve.mtime = 0;
     opts->log_file = NULL;
     opts->log_fp = NULL;
     opts->skip_set = NULL;
@@ -174,7 +197,7 @@ int parse_args(int argc, char *argv[], options_t *opts) {
     opts->cache_ttl = 0;    /* 0/negative: no expiry */
     g_verbose = 0; // Global verbosity level for logging macros
 
-    while ((opt = getopt_long(argc, argv, "r:LsRniuNpvhmPSH", long_options, &option_index)) != -1) {
+    while ((opt = getopt_long(argc, argv, "r:LsRniuNpavhmPSH", long_options, &option_index)) != -1) {
         switch (opt) {
             case 'r': {
                 opts->ref_dir_count++;
@@ -232,19 +255,25 @@ int parse_args(int argc, char *argv[], options_t *opts) {
                 opts->only_new = 1;
                 break;
             case 'p':
-                opts->preserve.mode = 1;
-                opts->preserve.ownership = 1;
-                opts->preserve.timestamps = 1;
+                parse_preserve_list("all", &opts->preserve, 1);
+                break;
+            case 'a':
+                /* As cp -a: -R --no-dereference --preserve=all. The
+                 * no-dereference part is applied after parsing, so an
+                 * explicit --skip-symlinks can override it. */
+                archive = 1;
+                opts->recursive = 1;
+                parse_preserve_list("all", &opts->preserve, 1);
                 break;
             case 'P':
-                if (optarg) {
-                    if (parse_preserve_list(optarg, &opts->preserve) != 0) {
-                        return -1;
-                    }
-                } else {
-                    opts->preserve.mode = 1;
-                    opts->preserve.ownership = 1;
-                    opts->preserve.timestamps = 1;
+                if (parse_preserve_list(optarg ? optarg : "all",
+                                        &opts->preserve, 1) != 0) {
+                    return -1;
+                }
+                break;
+            case 1006:
+                if (parse_preserve_list(optarg, &opts->preserve, 0) != 0) {
+                    return -1;
                 }
                 break;
             case 'S':
@@ -296,6 +325,9 @@ int parse_args(int argc, char *argv[], options_t *opts) {
                     print_error("Invalid cache TTL '%s'", optarg);
                     return -1;
                 }
+                break;
+            case 1007:
+                opts->prune_empty_dirs = 1;
                 break;
             case 'M':
                 opts->min_size = (off_t)atoll(optarg);
@@ -353,6 +385,10 @@ int parse_args(int argc, char *argv[], options_t *opts) {
     if (opts->cache_file && opts->ref_dir_count == 0) {
         print_error("--cache-file requires at least one reference directory (-r)");
         return -1;
+    }
+
+    if (archive && !opts->skip_symlinks) {
+        opts->no_dereference = 1;
     }
 
     /* Validate symlink options are mutually exclusive */

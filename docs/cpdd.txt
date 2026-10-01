@@ -33,6 +33,12 @@
        1m-R22m, 1m--recursive0m
               Copy directories recursively.
 
+       1m-a22m, 1m--archive0m
+              Archive mode: same as 1m-R --no-dereference --preserve=all22m, as  in
+              1mcp22m(1).  Can  be  narrowed  with later options, e.g. 1m-a --no-pre-0m
+              1mserve=ownership22m.  With  1m--skip-symlinks22m,  symbolic   links   are
+              skipped instead of being copied as links.
+
        1m-n22m, 1m--no-clobber0m
               Never overwrite existing files.
 
@@ -48,23 +54,54 @@
        1m-N22m, 1m--only-new0m
               Only copy files that don't exist in reference directories. Files
               with identical content in the reference will be skipped entirely
-              (not copied or linked). Requires at least one  reference  direc-
+              (not  copied  or linked). Requires at least one reference direc-
               tory (1m-r22m).
 
-       1m-p     22mPreserve  file  attributes (equivalent to 1m--preserve=mode,owner-0m
+       1m-p     22mPreserve file attributes (equivalent  to  1m--preserve=mode,owner-0m
               1mship,timestamps22m).
 
        1m--preserve22m[=4mATTR_LIST24m]
-              Preserve specified file attributes. If no  4mATTR_LIST24m  is  given,
-              preserves mode, ownership, and timestamps. Available attributes:
+              Preserve  specified  file  attributes. If no 4mATTR_LIST24m is given,
+              preserves mode, ownership, and timestamps. Attributes accumulate
+              across options, so  1m--preserve=mode  --preserve=atime  22mpreserves
+              both. Available attributes:
 
-              o   1mmode 22m- file permissions
+              o   1mmode 22m- file permissions, including setuid/setgid/sticky bits
 
-              o   1mownership 22m- user and group ownership
+              o   1mownership  22m-  user  and  group  ownership. Changing a file's
+                  owner requires root; when  it  isn't  permitted,  the  group
+                  alone  is set if possible. That fallback is silent when own-
+                  ership is requested implicitly (by 1m-p22m, 1m-a22m, a bare 1m--preserve0m
+                  or 1mall22m) and a reported failure when 1mownership 22mis  named  ex-
+                  plicitly,  as  in  1mcp22m(1). Either way, setuid and setgid bits
+                  are dropped from a copy that did not get the matching  owner
+                  or group.
 
-              o   1mtimestamps 22m- access and modification times
+              o   1matime 22m- access time
+
+              o   1mmtime 22m- modification time
+
+              o   1mtimestamps 22m- atime and mtime
 
               o   1mall 22m- all of the above
+
+              Timestamps  are  copied with full nanosecond precision. A direc-
+              tory's attributes are  applied  after  its  contents  have  been
+              copied,  so  its  mtime is not reset by the files created inside
+              it. With 1m--no-dereference22m, ownership and timestamps are  applied
+              to  copied  symbolic links themselves. Nothing is preserved on a
+              1m--dry-run22m. Hard-linked reference  matches  share  the  reference
+              file's  inode,  so  they always carry the reference's attributes
+              and are never modified.
+
+              1mctime 22m(inode change time) and birth time  cannot  be  preserved:
+              the kernel sets them, and offers no call to set them to an arbi-
+              trary value. Every copy's ctime is the time it was written.
+
+       1m--no-preserve22m=4mATTR_LIST0m
+              Don't preserve the specified attributes, using the same names as
+              1m--preserve22m. Options are applied left to right, so 1m--preserve=all0m
+              1m--no-preserve=atime 22mpreserves everything except atime.
 
        1m--stats0m
               Display statistics after the copy operation, including number of
@@ -93,6 +130,18 @@
               bolic  links.  Without this option (default), symbolic links are
               dereferenced and their targets are  copied.  Mutually  exclusive
               with 1m--skip-symlinks22m.
+
+       1m--prune-empty-dirs0m
+              Don't leave empty directories in the destination. A directory is
+              pruned  when  nothing  ends  up in it, either directly or in any
+              subdirectory: this covers directories that  were  empty  in  the
+              source,  and also ones whose files were all skipped, e.g. as du-
+              plicates with 1m-N 22mor as already-processed  with  1m--log-processed22m.
+              Only  directories  this run creates are pruned. Directories that
+              already existed are left alone, and the  destination  itself  is
+              never  removed.  With  1m--dry-run  -v22m,  directories that would be
+              pruned are listed as 1m[PRUNE]22m. Equivalent to 1mrsync22m(1)'s  1m--prune-0m
+              1mempty-dirs22m.
 
        1m--skip-symlinks0m
               Skip  symbolic links entirely. Symbolic links are neither copied

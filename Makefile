@@ -29,27 +29,27 @@ test: cpdd syndir
 	@echo "Running cpdd test suite..."
 	./test_cpdd.sh
 
-obj/cpdd/cpdd.o: src/cpdd/cpdd.c
+obj/cpdd/cpdd.o: src/cpdd/cpdd.c include/cpdd.h
 	mkdir -p obj/cpdd && $(CC) $(CFLAGS) -c src/cpdd/cpdd.c -o obj/cpdd/cpdd.o
-obj/cpdd/copy.o: src/cpdd/copy.c
+obj/cpdd/copy.o: src/cpdd/copy.c include/cpdd.h
 	mkdir -p obj/cpdd && $(CC) $(CFLAGS) -c src/cpdd/copy.c -o obj/cpdd/copy.o
-obj/cpdd/matching.o: src/cpdd/matching.c
+obj/cpdd/matching.o: src/cpdd/matching.c include/cpdd.h include/md5.h
 	mkdir -p obj/cpdd && $(CC) $(CFLAGS) -c src/cpdd/matching.c -o obj/cpdd/matching.o
-obj/cpdd/args.o: src/cpdd/args.c
+obj/cpdd/args.o: src/cpdd/args.c include/cpdd.h
 	mkdir -p obj/cpdd && $(CC) $(CFLAGS) -c src/cpdd/args.c -o obj/cpdd/args.o
-obj/cpdd/processed_log.o: src/cpdd/processed_log.c
+obj/cpdd/processed_log.o: src/cpdd/processed_log.c include/cpdd.h
 	mkdir -p obj/cpdd && $(CC) $(CFLAGS) -c src/cpdd/processed_log.c -o obj/cpdd/processed_log.o
-obj/cpdd/ref_cache.o: src/cpdd/ref_cache.c
+obj/cpdd/ref_cache.o: src/cpdd/ref_cache.c include/cpdd.h
 	mkdir -p obj/cpdd && $(CC) $(CFLAGS) -c src/cpdd/ref_cache.c -o obj/cpdd/ref_cache.o
-obj/common/terminal.o: src/common/terminal.c
+obj/common/terminal.o: src/common/terminal.c include/cpdd.h
 	mkdir -p obj/common && $(CC) $(CFLAGS) -c src/common/terminal.c -o obj/common/terminal.o
-obj/common/md5.o: src/common/md5.c
+obj/common/md5.o: src/common/md5.c include/md5.h
 	mkdir -p obj/common && $(CC) $(CFLAGS) -c src/common/md5.c -o obj/common/md5.o
-obj/syndir/syndir.o: src/syndir/syndir.c
+obj/syndir/syndir.o: src/syndir/syndir.c include/syndir.h
 	mkdir -p obj/syndir && $(CC) $(CFLAGS) -c src/syndir/syndir.c -o obj/syndir/syndir.o
-obj/syndir/core.o: src/syndir/core.c
+obj/syndir/core.o: src/syndir/core.c include/syndir.h
 	mkdir -p obj/syndir && $(CC) $(CFLAGS) -c src/syndir/core.c -o obj/syndir/core.o
-obj/syndir/args.o: src/syndir/args.c
+obj/syndir/args.o: src/syndir/args.c include/syndir.h
 	mkdir -p obj/syndir && $(CC) $(CFLAGS) -c src/syndir/args.c -o obj/syndir/args.o
 
 

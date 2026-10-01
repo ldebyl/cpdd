@@ -89,13 +89,23 @@ typedef enum {
     MATCH_ERROR = -2          /* File I/O or other error */
 } match_result_t;
 
-/* File attributes to preserve during copy */
+/* File attributes to preserve during copy. ctime and birth time are not
+ * here because no portable (or Linux) API can set them: the kernel stamps
+ * ctime itself on every inode change, including the utimensat() below. */
 typedef struct {
     int mode;       /* File permissions */
-    int ownership;  /* User/group ownership */
-    int timestamps; /* Access/modification times */
-    int all;        /* Preserve all attributes */
+    int ownership;  /* User/group ownership: 0, or one of the below */
+    int atime;      /* Access time */
+    int mtime;      /* Modification time (on by default) */
 } preserve_t;
+
+/* Ownership requested only implicitly (-p, -a, bare --preserve, "all")
+ * falls back quietly when not permitted, as cp(1) does; naming it in
+ * --preserve=ownership makes the failure a reported error. */
+#define PRESERVE_IMPLICIT 1
+#define PRESERVE_EXPLICIT 2
+
+#define PRESERVE_ANY(p) ((p)->mode || (p)->ownership || (p)->atime || (p)->mtime)
 
 /* Operation statistics */
 typedef struct {
@@ -147,6 +157,7 @@ typedef struct {
     int no_verify;          /* Skip content comparison (requires match_name) */
     int no_dereference;     /* Don't follow symlinks (copy them as-is) */
     int skip_symlinks;      /* Skip symlinks entirely */
+    int prune_empty_dirs;   /* Don't leave behind directories nothing was placed in */
     size_t block_size;      /* I/O block size (0 = auto-detect) */
     off_t min_size;         /* Minimum file size for matching (0 = no minimum) */
     preserve_t preserve;    /* Attributes to preserve */
@@ -227,8 +238,9 @@ void free_block_hashes(block_hashes_t *hashes);
 int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
                        const options_t *opts, stats_t *stats, int dest_dir_ready);
 int should_overwrite(const char *src_path, const char *dest_path, const options_t *opts);
-int preserve_file_attributes(const char *src, const char *dest, const preserve_t *preserve);
-int parse_preserve_list(const char *preserve_list, preserve_t *preserve);
+int preserve_file_attributes(const struct stat *src_st, const char *dest,
+                             const preserve_t *preserve, int nofollow);
+int parse_preserve_list(const char *preserve_list, preserve_t *preserve, int value);
 
 /* Block size utilities */
 size_t parse_size(const char *size_str);

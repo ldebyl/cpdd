@@ -111,10 +111,13 @@ Core Options:
     -H, --hard-link       Create hard links to reference files (default with -r)
     -s, --symbolic-link   Create symbolic links to reference files
     -R, --recursive       Copy directories recursively
+    -a, --archive         Same as -R --no-dereference --preserve=all
+    --prune-empty-dirs    Don't create directories that would end up empty
     -v, --verbose         Show detailed operation progress (multiple levels: -v, -vv, -vvv)
     -n, --no-clobber      Never overwrite existing files
     -i, --interactive     Prompt before overwriting files
-    --preserve=LIST       Preserve specified attributes (mode,ownership,timestamps,all)
+    --preserve=LIST       Preserve specified attributes (mode,ownership,atime,mtime,timestamps,all)
+    --no-preserve=LIST    Don't preserve the specified attributes
     --stats               Show final copy/link statistics
     -h, --help            Display help message
 
