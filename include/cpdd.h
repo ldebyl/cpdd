@@ -154,7 +154,8 @@ typedef struct {
     int show_stats;         /* Display operation statistics */
     int human_readable;     /* Human-readable byte counts */
     int match_name;         /* Match on filename in addition to size */
-    int no_verify;          /* Skip content comparison (requires match_name) */
+    int match_mtime;        /* Match on modification time in addition to size */
+    int no_verify;          /* Skip content comparison (requires match_name or match_mtime) */
     int no_dereference;     /* Don't follow symlinks (copy them as-is) */
     int skip_symlinks;      /* Skip symlinks entirely */
     int prune_empty_dirs;   /* Don't leave behind directories nothing was placed in */
@@ -180,6 +181,7 @@ typedef struct file_info {
     char *path;                         /* Full path to file */
     char *basename;                     /* Basename of file (pointer into path) */
     off_t size;                         /* File size in bytes */
+    time_t mtime;                       /* Modification time, whole seconds */
     block_hashes_t block_hashes;        /* Block-based MD5 hashes */
     struct file_info *next;             /* Next file in linked list */
     int ref_dir_index;                  /* Index into ref_files_t's ref_dir_paths this
@@ -222,7 +224,7 @@ ref_files_t *scan_reference_directory(const options_t *opts, stats_t *stats);
 /* src_size: the caller's already-known size of src_file (from a stat() it
  * already has), so this never needs to stat() src_file itself. */
 file_info_t *find_matching_file(ref_files_t *ref_files, const char *src_file,
-                                 off_t src_size, const options_t *opts, stats_t *stats);
+                                 off_t src_size, time_t src_mtime, const options_t *opts, stats_t *stats);
 match_result_t files_match(file_info_t *ref_file, file_info_t *src_file);
 
 /* Block hash management */

@@ -102,7 +102,10 @@ void print_usage(const char *program_name) {
     printf("  --block-size SIZE      I/O block size (default: auto-detect from filesystem)\n");
     printf("                           SIZE can be bytes or with suffix K, M, G (e.g., 64K, 1M)\n");
     printf("  -m, --match-name       Match on filename in addition to size\n");
-    printf("  --no-verify            Skip content comparison (requires --match-name)\n");
+    printf("  --match-mtime          Match on modification time (whole seconds) in addition to size\n");
+    printf("  --no-verify            Skip content comparison (requires --match-name or --match-mtime)\n");
+    printf("  --quick-match          Same as --match-name --match-mtime --no-verify: match on\n");
+    printf("                           name, size and mtime without reading file contents\n");
     printf("  --min-size SIZE        Minimum file size for duplicate matching (default: 1)\n");
     printf("  --no-dereference       Don't follow symbolic links\n");
     printf("  --skip-symlinks        Skip symbolic links entirely\n");
@@ -148,6 +151,8 @@ int parse_args(int argc, char *argv[], options_t *opts) {
         {"block-size",    required_argument, 0, 'B'},
         {"match-name",    no_argument,       0, 'm'},
         {"no-verify",     no_argument,       0, 'V'},
+        {"match-mtime",   no_argument,       0, 1008},
+        {"quick-match",   no_argument,       0, 1009},
         {"no-dereference", no_argument,      0, 'd'},
         {"skip-symlinks", no_argument,       0, 'k'},
         {"hard-link-source",     no_argument, 0, 1001},
@@ -180,6 +185,7 @@ int parse_args(int argc, char *argv[], options_t *opts) {
     opts->show_stats = 0;
     opts->human_readable = 0;
     opts->match_name = 0;
+    opts->match_mtime = 0;
     opts->no_verify = 0;
     opts->no_dereference = 0;
     opts->skip_symlinks = 0;
@@ -326,6 +332,14 @@ int parse_args(int argc, char *argv[], options_t *opts) {
                     return -1;
                 }
                 break;
+            case 1008:
+                opts->match_mtime = 1;
+                break;
+            case 1009:
+                opts->match_name = 1;
+                opts->match_mtime = 1;
+                opts->no_verify = 1;
+                break;
             case 1007:
                 opts->prune_empty_dirs = 1;
                 break;
@@ -372,8 +386,8 @@ int parse_args(int argc, char *argv[], options_t *opts) {
     }
 
     /* Validate --no-verify requirements */
-    if (opts->no_verify && !opts->match_name) {
-        print_error("--no-verify requires --match-name");
+    if (opts->no_verify && !opts->match_name && !opts->match_mtime) {
+        print_error("--no-verify requires --match-name or --match-mtime");
         return -1;
     }
 

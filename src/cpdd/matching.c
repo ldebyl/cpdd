@@ -229,6 +229,7 @@ static void collect_file_info(const char *ref_dir, const options_t *opts, int *c
 
             new_file->path = strdup(full_path);
             new_file->size = st.st_size;
+            new_file->mtime = st.st_mtime;
 
             /* Set basename as pointer into path */
             new_file->basename = strrchr(new_file->path, '/');
@@ -453,7 +454,7 @@ static void update_hash_stats(stats_t *stats, file_info_t *file)
 
 /* Find reference file matching src by size and content. Returns NULL if none */
 file_info_t *find_matching_file(ref_files_t *ref_files, const char *src_file,
-                                 off_t src_size, const options_t *opts, stats_t *stats)
+                                 off_t src_size, time_t src_mtime, const options_t *opts, stats_t *stats)
 {
     if (ref_files == NULL || ref_files->count == 0) {
         return NULL; /* No reference files available */
@@ -495,12 +496,21 @@ file_info_t *find_matching_file(ref_files_t *ref_files, const char *src_file,
             continue; /* Names don't match, skip this file */
         }
 
+        /* Whole seconds only: sub-second precision is routinely lost by
+         * copies through tools and filesystems that don't keep it. */
+        if (opts->match_mtime && current->mtime != src_mtime) {
+            continue;
+        }
+
         /* At this point we have a size match (and name match if enabled) */
         /* Decide whether to verify contents */
         if (opts->no_verify) {
-            /* Accept match based on size and name only, no content verification */
+            /* Accept match on metadata alone, no content verification */
             if (opts->verbose >= 3) {
-                print_verbose("Match found (size+name, no verification): %s matches %s", src_file, current->path);
+                print_verbose("Match found (size%s%s, no verification): %s matches %s",
+                              opts->match_name ? "+name" : "",
+                              opts->match_mtime ? "+mtime" : "",
+                              src_file, current->path);
             }
             match = current;
             break;

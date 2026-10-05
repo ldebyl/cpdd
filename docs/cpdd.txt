@@ -117,11 +117,31 @@
               ence  files  with  the  same basename as the source file will be
               considered for matching. Size matching is always performed.
 
+       1m--match-mtime0m
+              Match on modification time in addition to size:  only  reference
+              files  with  the  same  mtime as the source file are considered.
+              Times are compared in whole seconds, since sub-second  precision
+              is  often  lost when files are copied. Only useful if the refer-
+              ence copies kept their original mtimes (e.g. made with 1m-a22m, 1m-p 22mor
+              1mrsync -a22m).
+
        1m--no-verify0m
               Skip content comparison and accept matches based solely on  size
-              and filename. Requires 1m--match-name 22mto be enabled. Use with cau-
-              tion as this may create links to files with different content if
-              they have the same size and name.
+              plus  filename  and/or  mtime. Requires 1m--match-name 22mor 1m--match-0m
+              1mmtime22m. Use with caution as this may create links to  files  with
+              different  content  if their metadata happens to agree. 1m--match-0m
+              1mmtime --no-verify 22mwithout 1m--match-name  22mis  particularly  risky:
+              any  reference  file with the same size and mtime matches, what-
+              ever its name. With 1m--cache-file22m, matches are made against  ref-
+              erence  metadata  as  it was when cached; use 1m--cache-ttl 22mif the
+              reference may change between runs.
+
+       1m--quick-match0m
+              Same as 1m--match-name --match-mtime --no-verify22m: treat  a  refer-
+              ence  file with the same name, size and mtime as identical with-
+              out reading either file, like 1mrsync22m(1)'s  default  quick  check.
+              Much faster when most of the source already exists in the refer-
+              ence, at the cost of trusting metadata over content.
 
        1m--no-dereference0m
               Do  not  follow  symbolic  links. When this option is specified,
@@ -266,8 +286,11 @@
        1.  1mSize comparison 22m- Files must have identical size to  be  considered
            for matching.
 
-       2.  1mFilename comparison (optional) 22m- When 1m--match-name 22mis enabled, only
-           files with matching basenames are considered.
+       2.  1mFilename and mtime comparison (optional) 22m- When 1m--match-name 22mis en-
+           abled,  only  files  with  matching  basenames are considered. When
+           1m--match-mtime 22mis enabled, only files  with  the  same  modification
+           time (whole seconds) are considered. These checks use only metadata
+           already gathered by the scan, so they cost no extra I/O.
 
        3.  1mBlock-based  hash comparison 22m- Cached block hashes provide fast re-
            jection of non-matching files. This  only  ever  rejects  a  match,
@@ -285,8 +308,9 @@
            truly identical before linking (skipped if 1m--no-verify 22mis used).
 
            This approach minimizes expensive I/O operations while guaranteeing
-           correctness.  The  1m--no-verify  22moption trades accuracy for speed by
-           skipping the final content verification step.
+           correctness.  The  1m--no-verify 22moption (and 1m--quick-match22m, which im-
+           plies it) trades accuracy for speed by skipping steps 3 and  4  en-
+           tirely, so neither file is read.
 
 1mEXIT STATUS0m
        1mcpdd 22mexits with status 0 on success, 1 on error.
@@ -298,60 +322,60 @@
        Hard links can only be created between files on the same filesystem. If
        hard linking fails, 1mcpdd 22mwill fall back to copying the file normally.
 
-       Symbolic links in reference directories or created with 1m-s 22mcontain  the
-       path  to the target file and can span filesystems, but may break if the
+       Symbolic  links in reference directories or created with 1m-s 22mcontain the
+       path to the target file and can span filesystems, but may break if  the
        reference directory is moved or deleted.
 
        When copying symbolic links in the source:
 
-       o   By default, symbolic links are dereferenced  (followed)  and  their
+       o   By  default,  symbolic  links are dereferenced (followed) and their
            target files are copied.
 
-       o   With  1m--no-dereference22m, symbolic links are copied as symbolic links
+       o   With 1m--no-dereference22m, symbolic links are copied as symbolic  links
            (including broken ones).
 
-       o   With 1m--skip-symlinks22m, symbolic  links  are  skipped  entirely  (not
+       o   With  1m--skip-symlinks22m,  symbolic  links  are  skipped entirely (not
            copied at all).
 
        o   Broken symbolic links are skipped with a warning when dereferencing
            (default mode).
 
 1mSAME-FILE PROTECTION0m
-       A  regular copy never writes into an existing destination in place. The
-       destination path is unlinked first, and a brand new file is created  to
+       A regular copy never writes into an existing destination in place.  The
+       destination  path is unlinked first, and a brand new file is created to
        hold the source's content.
 
-       This  matters  because  a  destination  path can share its content with
-       something else entirely, without  that  being  obvious  from  the  path
-       alone:  it can be a hard link - to the source itself, typically left by
+       This matters because a destination path  can  share  its  content  with
+       something  else  entirely,  without  that  being  obvious from the path
+       alone: it can be a hard link - to the source itself, typically left  by
        an earlier 1mcpdd 22mrun's reference-match linking (1m-L22m), or to any other un-
-       related file - or a symlink to some other target. Opening such  a  path
-       directly  and truncating it, as a naive overwrite would, rewrites what-
-       ever it currently shares content with, silently corrupting a file  that
-       has  nothing  to do with the copy. Unlinking the destination name first
-       removes only that one name; it can never affect other names that  share
-       the  same  underlying data, so the file created afterward is always new
+       related  file  - or a symlink to some other target. Opening such a path
+       directly and truncating it, as a naive overwrite would, rewrites  what-
+       ever  it currently shares content with, silently corrupting a file that
+       has nothing to do with the copy. Unlinking the destination  name  first
+       removes  only that one name; it can never affect other names that share
+       the same underlying data, so the file created afterward is  always  new
        and independent.
 
        As a special case, if the destination is already the exact same file as
-       the source (matched by device and inode), the copy is skipped  entirely
-       (logged  as 1mSKIP-SAMEFILE22m) rather than unlinked and recreated: the con-
-       tent is already identical, and skipping preserves whatever  space  that
+       the  source (matched by device and inode), the copy is skipped entirely
+       (logged as 1mSKIP-SAMEFILE22m) rather than unlinked and recreated: the  con-
+       tent  is  already identical, and skipping preserves whatever space that
        hard link was already saving instead of duplicating it.
 
-       One  consequence: unlike a plain in-place overwrite, an existing desti-
+       One consequence: unlike a plain in-place overwrite, an existing  desti-
        nation's own permissions, ownership and timestamps do not survive being
-       overwritten - the new file gets the source's mode (via  the  umask)  as
-       usual  for  a  newly created file, the same as when the destination did
+       overwritten  -  the  new file gets the source's mode (via the umask) as
+       usual for a newly created file, the same as when  the  destination  did
        not exist beforehand. Use 1m-p22m/1m--preserve 22mif the destination's attributes
-       should instead be made to match the source's  explicitly.  This  trades
-       away  a property some tools' in-place overwrite deliberately keeps (see
+       should  instead  be  made to match the source's explicitly. This trades
+       away a property some tools' in-place overwrite deliberately keeps  (see
        1mcp22m(1)'s 1m--remove-destination22m, which is the opposite of 1mcp22m's own default
-       for exactly this reason) in exchange for the  corruption  this  section
+       for  exactly  this  reason) in exchange for the corruption this section
        describes never being possible.
 
-       This  check does not apply to hard or symbolic linking itself: creating
-       a new link already removes any existing destination  file  name  first,
+       This check does not apply to hard or symbolic linking itself:  creating
+       a  new  link  already removes any existing destination file name first,
        and is always safe in the same way.
 
 1mBUGS0m

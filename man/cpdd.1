@@ -83,8 +83,14 @@ I/O block size for file operations. SIZE can be specified in bytes or with suffi
 .BR \-m ", " \-\-match-name
 Match on filename in addition to size. When enabled, only reference files with the same basename as the source file will be considered for matching. Size matching is always performed.
 .TP
+.BR \-\-match-mtime
+Match on modification time in addition to size: only reference files with the same mtime as the source file are considered. Times are compared in whole seconds, since sub-second precision is often lost when files are copied. Only useful if the reference copies kept their original mtimes (e.g. made with \fB\-a\fR, \fB\-p\fR or \fBrsync \-a\fR).
+.TP
 .BR \-\-no-verify
-Skip content comparison and accept matches based solely on size and filename. Requires \fB\-\-match-name\fR to be enabled. Use with caution as this may create links to files with different content if they have the same size and name.
+Skip content comparison and accept matches based solely on size plus filename and/or mtime. Requires \fB\-\-match-name\fR or \fB\-\-match-mtime\fR. Use with caution as this may create links to files with different content if their metadata happens to agree. \fB\-\-match-mtime \-\-no-verify\fR without \fB\-\-match-name\fR is particularly risky: any reference file with the same size and mtime matches, whatever its name. With \fB\-\-cache-file\fR, matches are made against reference metadata as it was when cached; use \fB\-\-cache-ttl\fR if the reference may change between runs.
+.TP
+.BR \-\-quick-match
+Same as \fB\-\-match-name \-\-match-mtime \-\-no-verify\fR: treat a reference file with the same name, size and mtime as identical without reading either file, like \fBrsync\fR(1)'s default quick check. Much faster when most of the source already exists in the reference, at the cost of trusting metadata over content.
 .TP
 .BR \-\-no-dereference
 Do not follow symbolic links. When this option is specified, symbolic links are copied as symbolic links rather than copying the files they point to. Duplicate detection is skipped for symbolic links. Without this option (default), symbolic links are dereferenced and their targets are copied. Mutually exclusive with \fB\-\-skip-symlinks\fR.
@@ -164,8 +170,8 @@ uses a multi-stage matching process for efficient deduplication:
 .B Size comparison
 \- Files must have identical size to be considered for matching.
 .IP 2. 4
-.B Filename comparison (optional)
-\- When \fB\-\-match-name\fR is enabled, only files with matching basenames are considered.
+.B Filename and mtime comparison (optional)
+\- When \fB\-\-match-name\fR is enabled, only files with matching basenames are considered. When \fB\-\-match-mtime\fR is enabled, only files with the same modification time (whole seconds) are considered. These checks use only metadata already gathered by the scan, so they cost no extra I/O.
 .IP 3. 4
 .B Block-based hash comparison
 \- Cached block hashes provide fast rejection of non-matching files. This only ever rejects a match, never confirms one (step 4 always still runs before anything is linked), and it only helps once a source file has more than one same-size reference candidate to compare against: each source file's own hash chain always starts empty, so the very first candidate it checks is never fast-rejected regardless of what \fB\-\-cache-file\fR carries over. Reference trees with many same-sized files (thumbnails, sequential exports, RAW+JPEG pairs) benefit the most; a reference tree with few or no same-size collisions gets no benefit from this stage either way, cached or not.
@@ -173,7 +179,7 @@ uses a multi-stage matching process for efficient deduplication:
 .B Byte-by-byte comparison
 \- Final verification ensures content is truly identical before linking (skipped if \fB\-\-no-verify\fR is used).
 
-This approach minimizes expensive I/O operations while guaranteeing correctness. The \fB\-\-no-verify\fR option trades accuracy for speed by skipping the final content verification step.
+This approach minimizes expensive I/O operations while guaranteeing correctness. The \fB\-\-no-verify\fR option (and \fB\-\-quick-match\fR, which implies it) trades accuracy for speed by skipping steps 3 and 4 entirely, so neither file is read.
 .SH EXIT STATUS
 .B cpdd
 exits with status 0 on success, 1 on error.

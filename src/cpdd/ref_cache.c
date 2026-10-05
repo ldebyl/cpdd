@@ -32,9 +32,11 @@
  * checked before use, and any short read or out-of-range value aborts the
  * load and frees everything parsed so far, returning NULL. The cache is
  * fully regenerable from the reference directories at any time, so treating
- * "unreadable" the same as "absent" (a fresh scan) is always safe -- the
- * caller never trusts a cached match without also doing its own bytewise
- * comparison for the actual copy decision (see files_match() in matching.c).
+ * "unreadable" the same as "absent" (a fresh scan) is always safe. By
+ * default the caller never trusts a cached match without also doing its own
+ * bytewise comparison (see files_match() in matching.c). --no-verify is the
+ * exception: it trusts the cached size, name and mtime as they were at scan
+ * time, which is why --cache-ttl matters when the reference can change.
  *
  *   u32 magic, u32 version, u32 dir_count
  *   per directory:
@@ -44,6 +46,7 @@
  *     per file:
  *       u32 rel_len, bytes[rel_len]      (path relative to the directory, no NUL)
  *       i64 size
+ *       i64 mtime                        (whole seconds)
  *       i32 cached_blocks
  *       bytes[cached_blocks * BLOCK_HASH_SIZE]
  */
@@ -54,7 +57,7 @@
 #include <time.h>
 
 #define REF_CACHE_MAGIC    0x43524331u   /* arbitrary sentinel, not "meaningful" text */
-#define REF_CACHE_VERSION  1u
+#define REF_CACHE_VERSION  2u
 #define REF_CACHE_MAX_LEN  (1u << 20)     /* max length for any string field */
 #define REF_CACHE_MAX_COUNT (1u << 24)    /* max count for any array field */
 
@@ -112,7 +115,7 @@ ref_files_t *ref_cache_read(const char *path)
 
         for (uint32_t f = 0; ok && f < file_count; f++) {
             uint32_t rel_len = 0;
-            int64_t size = 0;
+            int64_t size = 0, mtime = 0;
             int32_t cached_blocks = 0;
             char *relpath;
             file_info_t *node;
@@ -127,6 +130,7 @@ ref_files_t *ref_cache_read(const char *path)
             relpath[rel_len] = '\0';
 
             if (fread(&size, sizeof size, 1, fp) != 1 ||
+                fread(&mtime, sizeof mtime, 1, fp) != 1 ||
                 fread(&cached_blocks, sizeof cached_blocks, 1, fp) != 1 ||
                 cached_blocks < 0 || cached_blocks > MAX_CACHED_BLOCKS) {
                 free(relpath);
@@ -146,6 +150,7 @@ ref_files_t *ref_cache_read(const char *path)
             node->basename = strrchr(node->path, '/');
             node->basename = node->basename ? node->basename + 1 : node->path;
             node->size = (off_t)size;
+            node->mtime = (time_t)mtime;
             node->ref_dir_index = (int)d;
             init_block_hashes(&node->block_hashes);
 
@@ -259,7 +264,7 @@ int ref_cache_write(const char *path, const ref_files_t *ref_files)
             file_info_t *f = ref_files->files[i];
             const char *rel;
             uint32_t rel_len;
-            int64_t size;
+            int64_t size, mtime;
             int32_t cached_blocks;
 
             if (f->ref_dir_index != d) continue;
@@ -276,11 +281,13 @@ int ref_cache_write(const char *path, const ref_files_t *ref_files)
             }
             rel_len = (uint32_t)strlen(rel);
             size = (int64_t)f->size;
+            mtime = (int64_t)f->mtime;
             cached_blocks = f->block_hashes.cached_blocks;
 
             if (fwrite(&rel_len, sizeof rel_len, 1, fp) != 1 ||
                 fwrite(rel, 1, rel_len, fp) != rel_len ||
                 fwrite(&size, sizeof size, 1, fp) != 1 ||
+                fwrite(&mtime, sizeof mtime, 1, fp) != 1 ||
                 fwrite(&cached_blocks, sizeof cached_blocks, 1, fp) != 1) {
                 ok = 0;
                 break;

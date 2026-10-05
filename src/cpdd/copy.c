@@ -691,7 +691,7 @@ int copy_or_link_file(const char *src, const char *dest, ref_files_t *ref_files,
     /* Find matching reference file if available. src_st.st_size is passed
      * in rather than letting this stat() src itself again -- the caller
      * (here) already has it, computed above. */
-    matching_file = find_matching_file(ref_files, src, src_st.st_size, opts, stats);
+    matching_file = find_matching_file(ref_files, src, src_st.st_size, src_st.st_mtime, opts, stats);
     if (opts->verbose >= 3 && matching_file) {
         print_verbose("Found matching reference file for %s: %s", src, matching_file->path);
     }
