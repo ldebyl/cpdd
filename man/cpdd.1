@@ -90,7 +90,7 @@ Match on modification time in addition to size: only reference files with the sa
 Skip content comparison and accept matches based solely on size plus filename and/or mtime. Requires \fB\-\-match-name\fR or \fB\-\-match-mtime\fR. Use with caution as this may create links to files with different content if their metadata happens to agree. \fB\-\-match-mtime \-\-no-verify\fR without \fB\-\-match-name\fR is particularly risky: any reference file with the same size and mtime matches, whatever its name. With \fB\-\-cache-file\fR, matches are made against reference metadata as it was when cached; use \fB\-\-cache-ttl\fR if the reference may change between runs.
 .TP
 .BR \-\-quick-match
-Same as \fB\-\-match-name \-\-match-mtime \-\-no-verify\fR: treat a reference file with the same name, size and mtime as identical without reading either file, like \fBrsync\fR(1)'s default quick check. Much faster when most of the source already exists in the reference, at the cost of trusting metadata over content.
+First look for a reference file with the same name, size and mtime, and if there is one, treat it as identical without reading either file, like \fBrsync\fR(1)'s default quick check. Only if there is none, fall back to normal matching, governed by the other matching options (by default: any same-size reference file, with full content verification). Much faster when most of the source already exists in the reference under the same name and mtime, while renamed or re-timestamped duplicates are still found and linked rather than copied. The quick match trusts metadata over content; for metadata-only matching with no fallback at all, use \fB\-\-match-name \-\-match-mtime \-\-no-verify\fR instead.
 .TP
 .BR \-\-no-dereference
 Do not follow symbolic links. When this option is specified, symbolic links are copied as symbolic links rather than copying the files they point to. Duplicate detection is skipped for symbolic links. Without this option (default), symbolic links are dereferenced and their targets are copied. Mutually exclusive with \fB\-\-skip-symlinks\fR.
@@ -179,7 +179,7 @@ uses a multi-stage matching process for efficient deduplication:
 .B Byte-by-byte comparison
 \- Final verification ensures content is truly identical before linking (skipped if \fB\-\-no-verify\fR is used).
 
-This approach minimizes expensive I/O operations while guaranteeing correctness. The \fB\-\-no-verify\fR option (and \fB\-\-quick-match\fR, which implies it) trades accuracy for speed by skipping steps 3 and 4 entirely, so neither file is read.
+This approach minimizes expensive I/O operations while guaranteeing correctness. The \fB\-\-no-verify\fR option trades accuracy for speed by skipping steps 3 and 4 entirely, so neither file is read. \fB\-\-quick-match\fR adds a step before step 1: a same name+size+mtime reference file is accepted immediately, and steps 1\(en4 only run when there is none.
 .SH EXIT STATUS
 .B cpdd
 exits with status 0 on success, 1 on error.

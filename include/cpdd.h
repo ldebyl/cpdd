@@ -155,6 +155,7 @@ typedef struct {
     int human_readable;     /* Human-readable byte counts */
     int match_name;         /* Match on filename in addition to size */
     int match_mtime;        /* Match on modification time in addition to size */
+    int quick_match;        /* Try an unverified name+size+mtime match before normal matching */
     int no_verify;          /* Skip content comparison (requires match_name or match_mtime) */
     int no_dereference;     /* Don't follow symlinks (copy them as-is) */
     int skip_symlinks;      /* Skip symlinks entirely */

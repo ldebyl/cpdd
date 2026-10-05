@@ -487,6 +487,23 @@ file_info_t *find_matching_file(ref_files_t *ref_files, const char *src_file,
 
     stats->files_with_size_matches++;
 
+    /* --quick-match: a same name+size+mtime reference file is taken on
+     * trust, without reading either file. Only when there is none does the
+     * normal (verified) search below run, so a renamed or re-timestamped
+     * duplicate still gets linked rather than copied. */
+    if (opts->quick_match) {
+        for (int i = first_match; i < ref_files->count && ref_files->files[i]->size == src_size; i++) {
+            file_info_t *current = ref_files->files[i];
+            if (current->mtime == src_mtime && strcmp(src_info.basename, current->basename) == 0) {
+                if (opts->verbose >= 3) {
+                    print_verbose("Quick match (size+name+mtime, no verification): %s matches %s",
+                                  src_file, current->path);
+                }
+                return current;
+            }
+        }
+    }
+
     /* Check all files with the same size starting from first_match */
     for (int i = first_match; i < ref_files->count && ref_files->files[i]->size == src_size; i++) {
         file_info_t *current = ref_files->files[i];

@@ -113,7 +113,7 @@ Core Options:
     -R, --recursive       Copy directories recursively
     -a, --archive         Same as -R --no-dereference --preserve=all
     --prune-empty-dirs    Don't create directories that would end up empty
-    --quick-match         Match on name+size+mtime without reading contents
+    --quick-match         Trust a name+size+mtime match; else fall back to normal matching
     -v, --verbose         Show detailed operation progress (multiple levels: -v, -vv, -vvv)
     -n, --no-clobber      Never overwrite existing files
     -i, --interactive     Prompt before overwriting files
